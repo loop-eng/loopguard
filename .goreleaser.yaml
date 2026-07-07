@@ -1,0 +1,55 @@
+version: 2
+
+project_name: loopguard
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: loopguard
+    main: ./cmd/loopguard
+    binary: loopguard
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/loop-eng/loopguard/internal/cli.version={{.Version}}
+      - -X github.com/loop-eng/loopguard/internal/cli.commit={{.Commit}}
+      - -X github.com/loop-eng/loopguard/internal/cli.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - repository:
+      owner: loop-eng
+      name: homebrew-tap
+    homepage: https://github.com/loop-eng/loopguard
+    description: Circuit breaker daemon for AI agent loops
+    license: MIT
+    install: |
+      bin.install "loopguard"
+    test: |
+      system "#{bin}/loopguard", "--version"
