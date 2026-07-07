@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -9,13 +11,12 @@ linters:
     - unused
     - ineffassign
     - gosimple
-
-linters-settings:
-  errcheck:
-    exclude-functions:
-      - (io.Closer).Close
-      - os.Remove
-      - os.MkdirAll
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - os.Remove
+        - os.MkdirAll
 
 issues:
   exclude-dirs:
