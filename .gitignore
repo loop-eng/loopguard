@@ -1,5 +1,8 @@
 bin/
 dist/
+circuitbreaker/
+tokenburn/
+context/
 *.exe
 *.dll
 *.so
