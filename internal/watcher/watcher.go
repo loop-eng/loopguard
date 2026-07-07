@@ -52,7 +52,7 @@ func (w *Watcher) Watch(ctx context.Context, basePath string) error {
 		w.logger.Warn("fsnotify unavailable, using polling only", "error", err)
 		return w.pollLoop(ctx, basePath)
 	}
-	defer fsw.Close()
+	defer func() { _ = fsw.Close() }()
 
 	if err := w.addWatchRecursive(fsw, basePath); err != nil {
 		w.logger.Warn("failed to add watches, using polling only", "error", err)
@@ -80,7 +80,7 @@ func (w *Watcher) Watch(ctx context.Context, basePath string) error {
 			if event.Op&fsnotify.Create != 0 {
 				info, err := os.Lstat(event.Name)
 				if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-					fsw.Add(event.Name)
+					_ = fsw.Add(event.Name)
 					continue
 				}
 			}
@@ -112,7 +112,7 @@ func (w *Watcher) AddFile(path, sessionID string, seekEnd bool) {
 
 	t := NewTailer(path)
 	if seekEnd {
-		t.SeekEnd()
+		_ = t.SeekEnd()
 	}
 	w.tailers[path] = t
 	if sessionID != "" {

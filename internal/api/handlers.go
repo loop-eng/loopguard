@@ -55,7 +55,7 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.backend.ResumeSession(r.Context(), id); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 

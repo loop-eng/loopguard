@@ -236,7 +236,7 @@ func (d *Daemon) processEvents() {
 				return
 			}
 
-			var p parser.Parser = d.parsers["claude"]
+			p := d.parsers["claude"]
 			if session, found := d.registry.Get(event.SessionID); found {
 				if agentParser, ok := d.parsers[session.Agent]; ok {
 					p = agentParser

@@ -52,9 +52,8 @@ var uninstallCmd = &cobra.Command{
 			return err
 		}
 
-		if err := daemon.StopService(slog.Default(), cfg); err != nil {
-			// Ignore stop errors — service might not be running
-		}
+		// Ignore stop errors — service might not be running.
+		_ = daemon.StopService(slog.Default(), cfg)
 
 		if err := daemon.UninstallService(slog.Default(), cfg); err != nil {
 			return fmt.Errorf("uninstall failed: %w", err)
