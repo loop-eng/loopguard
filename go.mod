@@ -1,6 +1,6 @@
 module github.com/loop-eng/loopguard
 
-go 1.23.0
+go 1.24
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
