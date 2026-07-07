@@ -38,7 +38,7 @@ func (p *program) Start(s service.Service) error {
 	p.done = make(chan struct{})
 	p.daemon = New(ctx, p.logger, p.cfg)
 	go func() {
-		p.daemon.Run()
+		_ = p.daemon.Run()
 		close(p.done)
 	}()
 	return nil

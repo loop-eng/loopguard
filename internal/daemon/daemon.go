@@ -314,7 +314,7 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 		d.ltfEmitter.EmitIntervention(alert.SessionID, session.Agent, "paused", alert.Trigger, alert.Cost)
 
 	case analyzer.AlertKill:
-		d.enforcer.Execute(d.ctx, enforcer.ActionKill, session.PID, session.ProjectDir, alert.Message)
+		_ = d.enforcer.Execute(d.ctx, enforcer.ActionKill, session.PID, session.ProjectDir, alert.Message)
 		d.registry.Update(alert.SessionID, func(s *discovery.Session) {
 			s.Active = false
 		})

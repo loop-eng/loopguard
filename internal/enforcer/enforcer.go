@@ -69,7 +69,7 @@ func (e *Enforcer) Resume(ctx context.Context, pid int, projectDir string) error
 		return fmt.Errorf("SIGCONT failed: %w", err)
 	}
 
-	removeSentinel(projectDir)
+	_ = removeSentinel(projectDir)
 
 	e.logger.InfoContext(ctx, "resumed agent", "pid", pid)
 	return nil
