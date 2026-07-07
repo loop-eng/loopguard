@@ -47,7 +47,7 @@ func resumeSession(id string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp map[string]string
-		json.NewDecoder(resp.Body).Decode(&errResp)
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
 		return fmt.Errorf("%s", errResp["error"])
 	}
 	return nil

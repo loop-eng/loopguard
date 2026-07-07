@@ -56,7 +56,9 @@ budget:
 spin_detection:
   repeated_calls: 5
 `
-	os.WriteFile(path, []byte(yaml), 0644)
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -81,7 +83,9 @@ spin_detection:
 func TestLoadInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	os.WriteFile(path, []byte("{{invalid yaml"), 0644)
+	if err := os.WriteFile(path, []byte("{{invalid yaml"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := Load(path)
 	if err == nil {

@@ -59,10 +59,8 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":  "resumed",
 		"session": id,
-	}); err != nil {
-		s.logger.Error("failed to encode response", "error", err)
-	}
+	})
 }

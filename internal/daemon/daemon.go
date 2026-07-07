@@ -142,7 +142,7 @@ func (d *Daemon) Shutdown() {
 	d.analyzer.Stop()
 	d.cancel()
 	d.wg.Wait()
-	d.watcher.Close()
+	_ = d.watcher.Close()
 	d.ltfEmitter.Close()
 }
 
@@ -282,7 +282,7 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 
 	switch alert.Level {
 	case analyzer.AlertWarn:
-		d.notifier.Send(d.ctx, "LoopGuard Warning", alert.Message, notify.UrgencyNormal)
+		_ = d.notifier.Send(d.ctx, "LoopGuard Warning", alert.Message, notify.UrgencyNormal)
 
 	case analyzer.AlertPause:
 		d.pausedMu.RLock()
@@ -308,7 +308,7 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 
 		msg := fmt.Sprintf("%s\nCost: $%.2f\nResume: loopguard resume %s",
 			alert.Message, alert.Cost, truncateID(alert.SessionID, 8))
-		d.notifier.Send(d.ctx, "LoopGuard: Agent Paused", msg, notify.UrgencyCritical)
+		_ = d.notifier.Send(d.ctx, "LoopGuard: Agent Paused", msg, notify.UrgencyCritical)
 
 		d.history.Record(alert.SessionID, session.Agent, "paused", alert.Trigger, alert.Cost)
 		d.ltfEmitter.EmitIntervention(alert.SessionID, session.Agent, "paused", alert.Trigger, alert.Cost)
@@ -318,7 +318,7 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 		d.registry.Update(alert.SessionID, func(s *discovery.Session) {
 			s.Active = false
 		})
-		d.notifier.Send(d.ctx, "LoopGuard: Agent Killed", alert.Message, notify.UrgencyCritical)
+		_ = d.notifier.Send(d.ctx, "LoopGuard: Agent Killed", alert.Message, notify.UrgencyCritical)
 		d.history.Record(alert.SessionID, session.Agent, "killed", alert.Trigger, alert.Cost)
 		d.ltfEmitter.EmitIntervention(alert.SessionID, session.Agent, "killed", alert.Trigger, alert.Cost)
 		d.ltfEmitter.EmitSessionEnd(alert.SessionID, session.Agent, alert.Trigger, alert.Cost, session.StartedAt)

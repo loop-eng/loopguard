@@ -14,5 +14,7 @@ linters:
     errcheck:
       exclude-functions:
         - (io.Closer).Close
+        - (net.Conn).Close
         - os.Remove
         - os.MkdirAll
+        - fmt.Sscanf
