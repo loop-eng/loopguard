@@ -39,6 +39,16 @@ func (r *Registry) Add(s *Session) {
 	r.sessions[s.ID] = s
 }
 
+func (r *Registry) TryAdd(s *Session) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.sessions[s.ID]; exists {
+		return false
+	}
+	r.sessions[s.ID] = s
+	return true
+}
+
 func (r *Registry) Get(id string) (Session, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

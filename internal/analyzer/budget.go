@@ -57,37 +57,47 @@ func (be *BudgetEnforcer) RecordCost(sessionID string, cost float64) *BudgetResu
 	be.dailyCost += cost
 	be.hourlyCosts = append(be.hourlyCosts, timedCost{timestamp: now, cost: cost})
 
-	// Trim hourly window
+	// Trim hourly window (copy to release old backing array)
 	cutoff := now.Add(-1 * time.Hour)
 	trimIdx := 0
 	for trimIdx < len(be.hourlyCosts) && be.hourlyCosts[trimIdx].timestamp.Before(cutoff) {
 		trimIdx++
 	}
 	if trimIdx > 0 {
-		be.hourlyCosts = be.hourlyCosts[trimIdx:]
+		remaining := make([]timedCost, len(be.hourlyCosts)-trimIdx)
+		copy(remaining, be.hourlyCosts[trimIdx:])
+		be.hourlyCosts = remaining
 	}
 
-	// Check per-session
+	// Check all limits and return the most severe result
 	sessionTotal := be.sessionCosts[sessionID]
-	if r := be.check("per_session", sessionTotal, be.perSession); r != nil {
-		return r
-	}
-
-	// Check per-hour
 	var hourTotal float64
 	for _, tc := range be.hourlyCosts {
 		hourTotal += tc.cost
 	}
-	if r := be.check("per_hour", hourTotal, be.perHour); r != nil {
-		return r
+
+	results := []*BudgetResult{
+		be.check("per_session", sessionTotal, be.perSession),
+		be.check("per_hour", hourTotal, be.perHour),
+		be.check("per_day", be.dailyCost, be.perDay),
 	}
 
-	// Check per-day
-	if r := be.check("per_day", be.dailyCost, be.perDay); r != nil {
-		return r
+	var worst *BudgetResult
+	for _, r := range results {
+		if r == nil {
+			continue
+		}
+		if worst == nil {
+			worst = r
+			continue
+		}
+		if r.Exceeded && !worst.Exceeded {
+			worst = r
+		} else if r.Exceeded == worst.Exceeded && r.Percentage > worst.Percentage {
+			worst = r
+		}
 	}
-
-	return nil
+	return worst
 }
 
 func (be *BudgetEnforcer) SessionCost(sessionID string) float64 {
@@ -100,6 +110,12 @@ func (be *BudgetEnforcer) DailyCost() float64 {
 	be.mu.Lock()
 	defer be.mu.Unlock()
 	return be.dailyCost
+}
+
+func (be *BudgetEnforcer) RemoveSession(sessionID string) {
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	delete(be.sessionCosts, sessionID)
 }
 
 func (be *BudgetEnforcer) check(limit string, current, maximum float64) *BudgetResult {

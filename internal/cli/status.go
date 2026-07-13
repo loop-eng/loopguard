@@ -48,17 +48,17 @@ with their current cost, rate, status, and duration.`,
 				project = "..." + project[len(project)-21:]
 			}
 
-			status := "running"
+			state := "running"
 			if s.Paused {
-				status = "paused"
+				state = "paused"
 			} else if !s.Active {
-				status = "done"
+				state = "done"
 			}
 
 			duration := time.Since(s.StartedAt).Truncate(time.Second)
 
 			fmt.Printf("%-10s %-8s %-25s $%-9.2f %-8s %s\n",
-				id, s.Agent, project, s.Cost, status, duration)
+				id, s.Agent, project, s.Cost, state, duration)
 		}
 
 		return nil

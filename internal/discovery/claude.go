@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -64,14 +66,28 @@ func (d *ClaudeDiscoverer) Discover(maxAge time.Duration) []*Session {
 			fullPath := filepath.Join(projPath, f.Name())
 
 			pid := findSessionPID(sessionID, fullPath)
+			meta := readSessionMeta(fullPath)
+
+			startedAt := info.ModTime()
+			if meta.Timestamp != "" {
+				if t, err := time.Parse(time.RFC3339Nano, meta.Timestamp); err == nil {
+					startedAt = t
+				}
+			}
+
+			projectDir := DecodeProjectDir(projDir.Name())
+			if meta.Cwd != "" {
+				projectDir = meta.Cwd
+			}
+
 			sessions = append(sessions, &Session{
 				ID:         sessionID,
 				Agent:      "claude",
 				Path:       fullPath,
-				ProjectDir: decodeProjectDir(projDir.Name()),
+				ProjectDir: projectDir,
 				PID:        pid,
 				Active:     pid > 0,
-				StartedAt:  info.ModTime(),
+				StartedAt:  startedAt,
 				LastEvent:  info.ModTime(),
 			})
 		}
@@ -81,8 +97,40 @@ func (d *ClaudeDiscoverer) Discover(maxAge time.Duration) []*Session {
 	return sessions
 }
 
-// Lossy: hyphens in the original path become slashes.
-func decodeProjectDir(encoded string) string {
+type sessionMeta struct {
+	Timestamp string `json:"timestamp"`
+	Cwd       string `json:"cwd"`
+}
+
+func readSessionMeta(path string) sessionMeta {
+	f, err := os.Open(path)
+	if err != nil {
+		return sessionMeta{}
+	}
+	defer f.Close()
+
+	var meta sessionMeta
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 4096), 64*1024)
+	for i := 0; i < 20 && scanner.Scan(); i++ {
+		var entry sessionMeta
+		if json.Unmarshal(scanner.Bytes(), &entry) != nil {
+			continue
+		}
+		if meta.Timestamp == "" && entry.Timestamp != "" {
+			meta.Timestamp = entry.Timestamp
+		}
+		if meta.Cwd == "" && entry.Cwd != "" {
+			meta.Cwd = entry.Cwd
+		}
+		if meta.Timestamp != "" && meta.Cwd != "" {
+			break
+		}
+	}
+	return meta
+}
+
+func DecodeProjectDir(encoded string) string {
 	return "/" + strings.ReplaceAll(strings.TrimPrefix(encoded, "-"), "-", "/")
 }
 

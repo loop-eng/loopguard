@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/loop-eng/loopguard/internal/api"
 )
@@ -14,6 +15,7 @@ import (
 func daemonClient() *http.Client {
 	sockPath := api.SocketPath()
 	return &http.Client{
+		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return net.Dial("unix", sockPath)

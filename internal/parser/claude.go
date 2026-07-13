@@ -6,17 +6,18 @@ import (
 	"time"
 )
 
-// Deduplicates token counts by requestId.
 type ClaudeParser struct {
-	seenRequests map[string]bool
-	seenCount    int
+	currentGen   map[string]bool
+	previousGen  map[string]bool
+	currentCount int
 }
 
 const maxSeenRequests = 10000
 
 func NewClaudeParser() *ClaudeParser {
 	return &ClaudeParser{
-		seenRequests: make(map[string]bool, 256),
+		currentGen:  make(map[string]bool, 256),
+		previousGen: make(map[string]bool),
 	}
 }
 
@@ -73,17 +74,17 @@ func (p *ClaudeParser) Parse(line []byte) ([]*ParsedEvent, error) {
 func (p *ClaudeParser) parseAssistant(entry *claudeEntry) ([]*ParsedEvent, error) {
 	ts := parseTimestamp(entry.Timestamp)
 
-	// Determine if tokens should be counted (dedup by requestId)
 	var tokens TokenUsage
 	countTokens := false
-	if entry.RequestID != "" && !p.seenRequests[entry.RequestID] {
-		p.seenRequests[entry.RequestID] = true
-		p.seenCount++
+	if entry.RequestID != "" && !p.currentGen[entry.RequestID] && !p.previousGen[entry.RequestID] {
+		p.currentGen[entry.RequestID] = true
+		p.currentCount++
 		countTokens = true
 
-		if p.seenCount > maxSeenRequests {
-			p.seenRequests = make(map[string]bool, 256)
-			p.seenCount = 0
+		if p.currentCount > maxSeenRequests {
+			p.previousGen = p.currentGen
+			p.currentGen = make(map[string]bool, 256)
+			p.currentCount = 0
 		}
 	}
 	if countTokens && entry.Message.Usage != nil {
@@ -179,7 +180,7 @@ func extractFilesChanged(toolName string, input any) []string {
 	}
 
 	switch toolName {
-	case "Edit", "Write", "Read":
+	case "Edit", "Write":
 		if fp, ok := inputMap["file_path"].(string); ok {
 			return []string{fp}
 		}
@@ -221,6 +222,9 @@ func parseTimestamp(s string) time.Time {
 }
 
 func contentToString(v any) string {
+	if v == nil {
+		return ""
+	}
 	switch val := v.(type) {
 	case string:
 		return val

@@ -16,26 +16,40 @@ You can use the first 8 characters of the session ID.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID := args[0]
+		if sessionID == "" {
+			return fmt.Errorf("session ID cannot be empty")
+		}
 
-		// Try to find full ID via status
 		status, err := fetchStatus()
 		if err != nil {
 			return fmt.Errorf("daemon not running — cannot resume")
 		}
 
-		fullID := sessionID
+		var matches []string
 		for _, s := range status.Sessions {
 			if len(sessionID) <= len(s.ID) && s.ID[:len(sessionID)] == sessionID {
-				fullID = s.ID
-				break
+				matches = append(matches, s.ID)
 			}
 		}
 
-		if err := resumeSession(fullID); err != nil {
+		switch len(matches) {
+		case 0:
+			return fmt.Errorf("no session matching prefix %q", sessionID)
+		case 1:
+			// unambiguous
+		default:
+			fmt.Printf("Ambiguous prefix %q matches %d sessions:\n", sessionID, len(matches))
+			for _, m := range matches {
+				fmt.Printf("  %s\n", m)
+			}
+			return fmt.Errorf("provide a longer prefix to disambiguate")
+		}
+
+		if err := resumeSession(matches[0]); err != nil {
 			return fmt.Errorf("failed to resume: %w", err)
 		}
 
-		fmt.Printf("Session %s resumed.\n", sessionID)
+		fmt.Printf("Session %s resumed.\n", matches[0][:8])
 		return nil
 	},
 }

@@ -44,6 +44,7 @@ type Analyzer struct {
 	budget   *BudgetEnforcer
 	spinCfg  SpinConfig
 	done     chan struct{}
+	stopOnce sync.Once
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -80,6 +81,17 @@ func (a *Analyzer) SessionCost(sessionID string) float64 {
 		return s.cost
 	}
 	return 0
+}
+
+func (a *Analyzer) RemoveSession(sessionID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.sessions, sessionID)
+	for key := range a.warned {
+		if len(key) > len(sessionID) && key[:len(sessionID)+1] == sessionID+":" {
+			delete(a.warned, key)
+		}
+	}
 }
 
 func (a *Analyzer) Process(ctx context.Context, sessionID string, event *parser.ParsedEvent) {
@@ -162,7 +174,7 @@ func (a *Analyzer) Process(ctx context.Context, sessionID string, event *parser.
 }
 
 func (a *Analyzer) Stop() {
-	close(a.done)
+	a.stopOnce.Do(func() { close(a.done) })
 }
 
 func (a *Analyzer) emit(alert Alert) {

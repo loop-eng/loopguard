@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -92,20 +94,49 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
+	applyDefaults(cfg)
 	applyEnvOverrides(cfg)
 	return cfg, nil
 }
 
+func applyDefaults(cfg *Config) {
+	defaults := Default()
+	if cfg.Budget.WarnAtPercent <= 0 {
+		cfg.Budget.WarnAtPercent = defaults.Budget.WarnAtPercent
+	}
+	if cfg.SpinDetection.RepeatedCalls <= 0 {
+		cfg.SpinDetection.RepeatedCalls = defaults.SpinDetection.RepeatedCalls
+	}
+	if cfg.SpinDetection.ErrorEcho <= 0 {
+		cfg.SpinDetection.ErrorEcho = defaults.SpinDetection.ErrorEcho
+	}
+	if cfg.Traces.OutputDir == "" {
+		cfg.Traces.OutputDir = defaults.Traces.OutputDir
+	}
+	if cfg.Logging.File == "" {
+		cfg.Logging.File = defaults.Logging.File
+	}
+	if cfg.Logging.Level == "" {
+		cfg.Logging.Level = defaults.Logging.Level
+	}
+}
+
 func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("LOOPGUARD_BUDGET_PER_SESSION"); v != "" {
-		fmt.Sscanf(v, "%f", &cfg.Budget.PerSessionUSD)
+	parseFloat := func(key string, target *float64) {
+		v := os.Getenv(key)
+		if v == "" {
+			return
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			slog.Warn("invalid env var value, ignoring", "key", key, "value", v, "error", err)
+			return
+		}
+		*target = f
 	}
-	if v := os.Getenv("LOOPGUARD_BUDGET_PER_HOUR"); v != "" {
-		fmt.Sscanf(v, "%f", &cfg.Budget.PerHourUSD)
-	}
-	if v := os.Getenv("LOOPGUARD_BUDGET_PER_DAY"); v != "" {
-		fmt.Sscanf(v, "%f", &cfg.Budget.PerDayUSD)
-	}
+	parseFloat("LOOPGUARD_BUDGET_PER_SESSION", &cfg.Budget.PerSessionUSD)
+	parseFloat("LOOPGUARD_BUDGET_PER_HOUR", &cfg.Budget.PerHourUSD)
+	parseFloat("LOOPGUARD_BUDGET_PER_DAY", &cfg.Budget.PerDayUSD)
 	if v := os.Getenv("LOOPGUARD_LOG_LEVEL"); v != "" {
 		cfg.Logging.Level = v
 	}

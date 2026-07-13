@@ -68,6 +68,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	cmd.Println("LoopGuard daemon starting...")
 
 	d := daemon.New(ctx, logger, cfg)
+	defer d.Shutdown()
 	return d.Run()
 }
 

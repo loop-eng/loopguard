@@ -73,9 +73,6 @@ func (w *Watcher) Watch(ctx context.Context, basePath string) error {
 			if !ok {
 				return nil
 			}
-			if !w.isRelevant(event) {
-				continue
-			}
 
 			if event.Op&fsnotify.Create != 0 {
 				info, err := os.Lstat(event.Name)
@@ -83,6 +80,10 @@ func (w *Watcher) Watch(ctx context.Context, basePath string) error {
 					_ = fsw.Add(event.Name)
 					continue
 				}
+			}
+
+			if !w.isRelevant(event) {
+				continue
 			}
 
 			path := event.Name
@@ -157,7 +158,6 @@ func (w *Watcher) isRelevant(event fsnotify.Event) bool {
 }
 
 func (w *Watcher) readAndEmit(path string) {
-	// Check done before any work
 	select {
 	case <-w.done:
 		return
@@ -166,14 +166,11 @@ func (w *Watcher) readAndEmit(path string) {
 
 	w.mu.Lock()
 	tailer, exists := w.tailers[path]
-	w.mu.Unlock()
-
 	if !exists {
 		tailer = NewTailer(path)
-		w.mu.Lock()
 		w.tailers[path] = tailer
-		w.mu.Unlock()
 	}
+	w.mu.Unlock()
 
 	lines, err := tailer.ReadNewLines()
 	if err != nil {

@@ -24,7 +24,10 @@ func validatePID(pid int) error {
 func sendSignal(pid int, sig syscall.Signal) error {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
-		// Fall back to single process if group not available
+		return syscall.Kill(pid, sig)
+	}
+	myPgid := syscall.Getpgrp()
+	if pgid == myPgid {
 		return syscall.Kill(pid, sig)
 	}
 	return syscall.Kill(-pgid, sig)

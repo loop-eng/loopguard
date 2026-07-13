@@ -10,10 +10,11 @@ import (
 const maxLineSize = 1 << 20 // 1 MB — discard lines larger than this
 
 type Tailer struct {
-	mu     sync.Mutex
-	path   string
-	offset int64
-	buf    []byte // partial line buffer
+	mu            sync.Mutex
+	path          string
+	offset        int64
+	buf           []byte
+	skipToNewline bool
 }
 
 func NewTailer(path string) *Tailer {
@@ -63,7 +64,6 @@ func (t *Tailer) ReadNewLines() ([][]byte, error) {
 	reader := bufio.NewReader(f)
 	var lines [][]byte
 
-	// Prepend any buffered partial line
 	var current []byte
 	if len(t.buf) > 0 {
 		current = append(current, t.buf...)
@@ -75,11 +75,11 @@ func (t *Tailer) ReadNewLines() ([][]byte, error) {
 		current = append(current, chunk...)
 
 		if err == io.EOF {
-			// Incomplete line — buffer it (capped)
 			if len(current) > 0 && len(current) <= maxLineSize {
 				t.buf = current
-			} else {
-				t.buf = nil // drop oversized partial
+			} else if len(current) > maxLineSize {
+				t.buf = nil
+				t.skipToNewline = true
 			}
 			break
 		}
@@ -87,7 +87,12 @@ func (t *Tailer) ReadNewLines() ([][]byte, error) {
 			return lines, err
 		}
 
-		// Drop oversized lines to prevent OOM
+		if t.skipToNewline {
+			t.skipToNewline = false
+			current = current[:0]
+			continue
+		}
+
 		if len(current) > maxLineSize {
 			current = current[:0]
 			continue

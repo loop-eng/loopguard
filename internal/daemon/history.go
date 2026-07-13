@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -42,12 +43,7 @@ func (h *History) Record(sessionID, agent, action, trigger string, cost float64)
 		CostUSD:   cost,
 	}
 
-	if info, err := os.Lstat(h.path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		h.logger.Error("refusing to follow symlink for history file", "path", h.path)
-		return
-	}
-
-	f, err := os.OpenFile(h.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(h.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		h.logger.Error("failed to open history file", "error", err)
 		return

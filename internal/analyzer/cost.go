@@ -2,19 +2,35 @@ package analyzer
 
 import (
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/loop-eng/loopguard/internal/parser"
 )
 
+type modelEntry struct {
+	name    string
+	pricing ModelPricing
+}
+
 type CostCalculator struct {
 	pricing map[string]ModelPricing
+	sorted  []modelEntry
 	logger  *slog.Logger
 }
 
 func NewCostCalculator(logger *slog.Logger) *CostCalculator {
+	pricing := DefaultPricing()
+	sorted := make([]modelEntry, 0, len(pricing))
+	for name, p := range pricing {
+		sorted = append(sorted, modelEntry{name, p})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].name) > len(sorted[j].name)
+	})
 	return &CostCalculator{
-		pricing: DefaultPricing(),
+		pricing: pricing,
+		sorted:  sorted,
 		logger:  logger,
 	}
 }
@@ -35,10 +51,9 @@ func (cc *CostCalculator) resolve(model string) ModelPricing {
 		return p
 	}
 
-	// Try prefix matching (e.g., "claude-sonnet-4-6[1m]" → "claude-sonnet-4-6")
-	for name, p := range cc.pricing {
-		if strings.HasPrefix(model, name) {
-			return p
+	for _, entry := range cc.sorted {
+		if strings.HasPrefix(model, entry.name) {
+			return entry.pricing
 		}
 	}
 

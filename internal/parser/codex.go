@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type CodexParser struct {
@@ -53,7 +54,9 @@ func (p *CodexParser) Parse(line []byte) ([]*ParsedEvent, error) {
 	switch entry.Type {
 	case "tool_call_started":
 		var tc codexToolCall
-		json.Unmarshal(entry.Data, &tc)
+		if err := json.Unmarshal(entry.Data, &tc); err != nil {
+			return nil, fmt.Errorf("codex tool_call_started data: %w", err)
+		}
 		return []*ParsedEvent{{
 			SessionID:   entry.SessionID,
 			UUID:        entry.ID,
@@ -67,7 +70,9 @@ func (p *CodexParser) Parse(line []byte) ([]*ParsedEvent, error) {
 
 	case "tool_call_ended":
 		var tr codexToolResult
-		json.Unmarshal(entry.Data, &tr)
+		if err := json.Unmarshal(entry.Data, &tr); err != nil {
+			return nil, fmt.Errorf("codex tool_call_ended data: %w", err)
+		}
 		ev := &ParsedEvent{
 			SessionID:   entry.SessionID,
 			UUID:        entry.ID,
@@ -84,7 +89,9 @@ func (p *CodexParser) Parse(line []byte) ([]*ParsedEvent, error) {
 
 	case "inference_completed":
 		var inf codexInference
-		json.Unmarshal(entry.Data, &inf)
+		if err := json.Unmarshal(entry.Data, &inf); err != nil {
+			return nil, fmt.Errorf("codex inference_completed data: %w", err)
+		}
 
 		rid := entry.ID
 		if rid != "" && p.seenRequests[rid] {

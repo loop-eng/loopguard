@@ -36,11 +36,15 @@ func (d *CustomDiscoverer) Discover(maxAge time.Duration) []*Session {
 	cutoff := time.Now().Add(-maxAge)
 	var sessions []*Session
 
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		d.logger.Error("cannot determine home directory, skipping all custom paths")
+		return nil
+	}
 
 	for _, pattern := range d.paths {
 		absPattern, err := filepath.Abs(pattern)
-		if err != nil || (home != "" && !strings.HasPrefix(absPattern, home+string(filepath.Separator))) {
+		if err != nil || !strings.HasPrefix(absPattern, home+string(filepath.Separator)) {
 			d.logger.Warn("custom path outside home directory, skipping", "pattern", pattern)
 			continue
 		}
@@ -62,12 +66,14 @@ func (d *CustomDiscoverer) Discover(maxAge time.Duration) []*Session {
 
 			sessionID := safeIDPattern.ReplaceAllString(
 				strings.TrimSuffix(filepath.Base(path), ".jsonl"), "_")
+			pid := lsofFile(path)
 			sessions = append(sessions, &Session{
 				ID:         sessionID,
 				Agent:      "custom",
 				Path:       path,
 				ProjectDir: filepath.Dir(path),
-				Active:     true,
+				PID:        pid,
+				Active:     pid > 0,
 				StartedAt:  info.ModTime(),
 				LastEvent:  info.ModTime(),
 			})

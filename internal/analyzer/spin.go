@@ -205,14 +205,16 @@ func (sd *SpinDetector) checkStall(now time.Time) string {
 func (sd *SpinDetector) recordCost(ts time.Time, cost float64) {
 	sd.costWindow = append(sd.costWindow, timedCost{timestamp: ts, cost: cost})
 
-	// Trim window to last 5 minutes
+	// Trim window to last 5 minutes (copy to release old backing array)
 	cutoff := ts.Add(-5 * time.Minute)
 	trimIdx := 0
 	for trimIdx < len(sd.costWindow) && sd.costWindow[trimIdx].timestamp.Before(cutoff) {
 		trimIdx++
 	}
 	if trimIdx > 0 {
-		sd.costWindow = sd.costWindow[trimIdx:]
+		remaining := make([]timedCost, len(sd.costWindow)-trimIdx)
+		copy(remaining, sd.costWindow[trimIdx:])
+		sd.costWindow = remaining
 	}
 }
 

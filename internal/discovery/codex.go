@@ -59,13 +59,14 @@ func (d *CodexDiscoverer) Discover(maxAge time.Duration) []*Session {
 
 			pid := findSessionPID(sessionID, fullPath)
 			sessions = append(sessions, &Session{
-				ID:        sessionID,
-				Agent:     "codex",
-				Path:      fullPath,
-				PID:       pid,
-				Active:    pid > 0,
-				StartedAt: info.ModTime(),
-				LastEvent: info.ModTime(),
+				ID:         sessionID,
+				Agent:      "codex",
+				Path:       fullPath,
+				ProjectDir: sessionPath,
+				PID:        pid,
+				Active:     pid > 0,
+				StartedAt:  info.ModTime(),
+				LastEvent:  info.ModTime(),
 			})
 		}
 	}

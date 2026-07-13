@@ -56,7 +56,12 @@ func (s *Server) Serve(ctx context.Context, socketPath string) error {
 	}
 	s.logger.Info("API server listening", "socket", socketPath)
 
-	s.httpSrv = &http.Server{Handler: s.mux}
+	s.httpSrv = &http.Server{
+		Handler:      s.mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
 
 	go func() {
 		<-ctx.Done()

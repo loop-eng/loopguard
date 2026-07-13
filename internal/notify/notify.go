@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -57,13 +58,19 @@ func (n *Notifier) sendDarwin(ctx context.Context, title, message string, urgenc
 		if urgency == UrgencyCritical {
 			sound = "Basso"
 		}
-		soundClause = fmt.Sprintf(` sound name %q`, sound)
+		soundClause = fmt.Sprintf(` sound name "%s"`, escapeAppleScript(sound))
 	}
 	script := fmt.Sprintf(
-		`display notification %q with title %q%s`,
-		message, title, soundClause,
+		`display notification "%s" with title "%s"%s`,
+		escapeAppleScript(message), escapeAppleScript(title), soundClause,
 	)
 	return exec.CommandContext(ctx, "osascript", "-e", script).Run()
+}
+
+func escapeAppleScript(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
 
 func (n *Notifier) sendLinux(ctx context.Context, title, message string, urgency Urgency) error {

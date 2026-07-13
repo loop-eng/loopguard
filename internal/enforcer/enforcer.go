@@ -61,17 +61,24 @@ func (e *Enforcer) Execute(ctx context.Context, action Action, pid int, projectD
 }
 
 func (e *Enforcer) Resume(ctx context.Context, pid int, projectDir string) error {
-	if err := validatePID(pid); err != nil {
-		return fmt.Errorf("cannot resume: %w", err)
+	pidValid := validatePID(pid) == nil
+
+	if pidValid {
+		if err := contProcess(pid); err != nil {
+			e.logger.Warn("SIGCONT failed, trying sentinel removal", "pid", pid, "error", err)
+		} else {
+			e.logger.InfoContext(ctx, "resumed agent via SIGCONT", "pid", pid)
+		}
 	}
 
-	if err := contProcess(pid); err != nil {
-		return fmt.Errorf("SIGCONT failed: %w", err)
+	if projectDir != "" {
+		_ = removeSentinel(projectDir)
 	}
 
-	_ = removeSentinel(projectDir)
+	if !pidValid && projectDir == "" {
+		return fmt.Errorf("cannot resume: no valid PID and no project directory")
+	}
 
-	e.logger.InfoContext(ctx, "resumed agent", "pid", pid)
 	return nil
 }
 
@@ -101,6 +108,8 @@ func (e *Enforcer) kill(ctx context.Context, pid int) error {
 		return fmt.Errorf("cannot kill: %w", err)
 	}
 
+	pgid, pgidErr := syscall.Getpgid(pid)
+
 	if err := termProcess(pid); err != nil {
 		return fmt.Errorf("SIGTERM failed: %w", err)
 	}
@@ -110,7 +119,18 @@ func (e *Enforcer) kill(ctx context.Context, pid int) error {
 		case <-ctx.Done():
 			return
 		case <-time.After(5 * time.Second):
-			if err := validatePID(pid); err == nil {
+			if pgidErr == nil {
+				currentPgid, err := syscall.Getpgid(pid)
+				if err != nil || currentPgid != pgid {
+					e.logger.Info("process group exited after SIGTERM", "pid", pid)
+					return
+				}
+				if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+					e.logger.Error("SIGKILL group failed", "pgid", pgid, "error", err)
+				} else {
+					e.logger.Warn("sent SIGKILL to process group", "pgid", pgid)
+				}
+			} else if validatePID(pid) == nil {
 				if err := killProcess(pid); err != nil {
 					e.logger.Error("SIGKILL failed", "pid", pid, "error", err)
 				}

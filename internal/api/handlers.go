@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +55,11 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.backend.ResumeSession(r.Context(), id); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}

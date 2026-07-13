@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,8 +71,8 @@ func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
 	if cfg.Sources.Codex != "disabled" {
 		discoverers = append(discoverers, discovery.NewCodexDiscoverer(logger))
 	}
-	if len(cfg.Sources.Custom) > 0 {
-		discoverers = append(discoverers, discovery.NewCustomDiscoverer(logger, cfg.Sources.Custom))
+	for _, customPath := range cfg.Sources.Custom {
+		discoverers = append(discoverers, discovery.NewCustomDiscoverer(logger, []string{customPath}))
 	}
 
 	d := &Daemon{
@@ -106,8 +107,10 @@ func (d *Daemon) Run() error {
 
 	d.discoverSessions()
 
-	sockPath := d.socketPath()
+	sockPath := api.SocketPath()
+	d.wg.Add(1)
 	go func() {
+		defer d.wg.Done()
 		if err := d.apiServer.Serve(d.ctx, sockPath); err != nil {
 			d.logger.Error("API server error", "error", err)
 		}
@@ -139,9 +142,9 @@ func (d *Daemon) Run() error {
 }
 
 func (d *Daemon) Shutdown() {
-	d.analyzer.Stop()
 	d.cancel()
 	d.wg.Wait()
+	d.analyzer.Stop()
 	_ = d.watcher.Close()
 	d.ltfEmitter.Close()
 }
@@ -241,6 +244,22 @@ func (d *Daemon) processEvents() {
 				if agentParser, ok := d.parsers[session.Agent]; ok {
 					p = agentParser
 				}
+			} else {
+				agent, projectDir := d.inferSessionInfo(event.Path)
+				if d.registry.TryAdd(&discovery.Session{
+					ID:         event.SessionID,
+					Agent:      agent,
+					Path:       event.Path,
+					ProjectDir: projectDir,
+					Active:     true,
+					StartedAt:  time.Now(),
+					LastEvent:  time.Now(),
+				}) {
+					if agentParser, ok := d.parsers[agent]; ok {
+						p = agentParser
+					}
+					d.logger.Info("auto-registered session from watcher", "session", event.SessionID, "agent", agent)
+				}
 			}
 
 			for _, line := range event.Lines {
@@ -314,7 +333,10 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 		d.ltfEmitter.EmitIntervention(alert.SessionID, session.Agent, "paused", alert.Trigger, alert.Cost)
 
 	case analyzer.AlertKill:
-		_ = d.enforcer.Execute(d.ctx, enforcer.ActionKill, session.PID, session.ProjectDir, alert.Message)
+		if err := d.enforcer.Execute(d.ctx, enforcer.ActionKill, session.PID, session.ProjectDir, alert.Message); err != nil {
+			d.logger.Error("failed to kill session", "session", alert.SessionID, "error", err)
+			return
+		}
 		d.registry.Update(alert.SessionID, func(s *discovery.Session) {
 			s.Active = false
 		})
@@ -325,11 +347,23 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 	}
 }
 
-func (d *Daemon) socketPath() string {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".config", "loopguard")
-	os.MkdirAll(dir, 0700)
-	return filepath.Join(dir, "loopguard.sock")
+func (d *Daemon) inferSessionInfo(path string) (agent, projectDir string) {
+	storageDir := filepath.Dir(path)
+	for _, disc := range d.discoverers {
+		base := disc.BasePath()
+		if base != "" && strings.HasPrefix(path, base) {
+			agent = disc.Agent()
+			if agent == "claude" {
+				encoded := filepath.Base(storageDir)
+				decoded := discovery.DecodeProjectDir(encoded)
+				if info, err := os.Stat(decoded); err == nil && info.IsDir() {
+					return agent, decoded
+				}
+			}
+			return agent, storageDir
+		}
+	}
+	return "claude", storageDir
 }
 
 func truncateID(id string, n int) string {
