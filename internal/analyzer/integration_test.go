@@ -350,6 +350,49 @@ func TestIntegrationCostVelocityDetection(t *testing.T) {
 	t.Error("expected cost velocity alert")
 }
 
+func TestIntegrationContextBloatDetection(t *testing.T) {
+	budget := NewBudgetEnforcer(9999, 9999, 9999, 80)
+	a := New(slog.Default(), budget, SpinConfig{
+		RepeatedCalls:      100,
+		ErrorEcho:          100,
+		StallMinutes:       100,
+		CostVelocityPerMin: 9999,
+		ContextFillPercent: 85,
+		WindowSize:         50,
+	})
+
+	ctx := context.Background()
+	// claude-haiku-4-5 has a 200K context window; 190K input tokens is 95%.
+	a.Process(ctx, "s1", &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 190_000, OutputTokens: 500},
+		Model:       "claude-haiku-4-5",
+	})
+
+	var alerts []Alert
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case alert := <-a.Alerts():
+				alerts = append(alerts, alert)
+			case <-time.After(100 * time.Millisecond):
+				return
+			}
+		}
+	}()
+	<-done
+
+	for _, alert := range alerts {
+		if alert.Trigger == "spin_detected" && contains(alert.Message, "context window") {
+			return
+		}
+	}
+	t.Error("expected context bloat alert")
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
 }

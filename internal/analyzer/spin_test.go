@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,119 @@ func TestSpinDetectorCostVelocity(t *testing.T) {
 
 	if !result.IsSpinning {
 		t.Error("should detect cost velocity exceeding threshold")
+	}
+}
+
+func TestSpinDetectorContextBloat(t *testing.T) {
+	sd := NewSpinDetector(SpinConfig{
+		RepeatedCalls:      100,
+		ErrorEcho:          100,
+		StallMinutes:       100,
+		CostVelocityPerMin: 100,
+		ContextFillPercent: 85,
+		WindowSize:         50,
+	})
+
+	// 80% fill of a 200K window (claude-haiku-4-5) — should not trigger.
+	ev := &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Model:       "claude-haiku-4-5",
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 160_000},
+	}
+	result := sd.Check(ev, 1.0)
+	if result.IsSpinning {
+		t.Error("should not trigger at 80% fill")
+	}
+
+	// 90% fill — should trigger (threshold 85%).
+	ev2 := &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Model:       "claude-haiku-4-5",
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 180_000},
+	}
+	result2 := sd.Check(ev2, 1.0)
+	if !result2.IsSpinning {
+		t.Error("should trigger at 90% fill (threshold 85%)")
+	}
+	if result2.Heuristic != "context_bloat" {
+		t.Errorf("expected heuristic context_bloat, got %q", result2.Heuristic)
+	}
+}
+
+func TestSpinDetectorContextBloatDisabled(t *testing.T) {
+	sd := NewSpinDetector(SpinConfig{
+		RepeatedCalls:      100,
+		ErrorEcho:          100,
+		StallMinutes:       100,
+		CostVelocityPerMin: 100,
+		ContextFillPercent: 0, // disabled
+		WindowSize:         50,
+	})
+
+	ev := &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Model:       "claude-haiku-4-5",
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 199_000}, // 99.5%
+	}
+	result := sd.Check(ev, 1.0)
+	if result.IsSpinning {
+		t.Error("should not trigger when ContextFillPercent is 0")
+	}
+}
+
+func TestSpinDetectorContextBloatFallback(t *testing.T) {
+	sd := NewSpinDetector(SpinConfig{
+		RepeatedCalls:      100,
+		ErrorEcho:          100,
+		StallMinutes:       100,
+		CostVelocityPerMin: 100,
+		ContextFillPercent: 85,
+		WindowSize:         50,
+	})
+
+	// Unknown model -> falls back to the 200K conservative window.
+	ev := &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Model:       "unknown-model-xyz",
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 180_000}, // 90% of 200K
+	}
+	result := sd.Check(ev, 1.0)
+	if !result.IsSpinning {
+		t.Error("should trigger with fallback context window")
+	}
+}
+
+func TestSpinDetectorContextBloatDatedModelPrefix(t *testing.T) {
+	sd := NewSpinDetector(SpinConfig{
+		RepeatedCalls:      100,
+		ErrorEcho:          100,
+		StallMinutes:       100,
+		CostVelocityPerMin: 100,
+		ContextFillPercent: 85,
+		WindowSize:         50,
+	})
+
+	// A dated model version should prefix-match "claude-sonnet-4-6" (1M window),
+	// not fall back to the conservative 200K window.
+	ev := &parser.ParsedEvent{
+		ContentType: parser.ContentText,
+		Model:       "claude-sonnet-4-6-20260714",
+		Timestamp:   time.Now(),
+		Tokens:      parser.TokenUsage{InputTokens: 900_000}, // ~85.8% of 1,048,576
+	}
+	result := sd.Check(ev, 1.0)
+	if !result.IsSpinning {
+		t.Error("should trigger via longest-prefix match against 1M window, not 200K fallback")
+	}
+
+	// Sanity check: 900K tokens is only 450% "full" against the 200K fallback,
+	// which would ALSO trigger, so verify the reason cites the larger window.
+	if len(result.Reasons) == 0 || !strings.Contains(result.Reasons[len(result.Reasons)-1], "1048576") {
+		t.Errorf("expected reason to cite 1048576-token window, got %v", result.Reasons)
 	}
 }
 

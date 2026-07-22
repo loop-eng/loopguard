@@ -154,7 +154,19 @@ func (w *Watcher) isRelevant(event fsnotify.Event) bool {
 	if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
 		return false
 	}
-	return strings.HasSuffix(event.Name, ".jsonl")
+	if strings.HasSuffix(event.Name, ".jsonl") {
+		// Covers Claude Code, Codex, and current-format Gemini CLI
+		// sessions (all append-only).
+		return true
+	}
+	// Legacy Gemini CLI sessions are monolithic JSON, rewritten in full on
+	// every turn (see Tailer's whole-file mode for how these are read
+	// correctly). Scope the .json match to Gemini's actual naming
+	// convention ("session-*.json") rather than any .json file, so we
+	// don't start tailing unrelated .json files that might live under a
+	// watched directory (e.g. a user's custom source path).
+	base := filepath.Base(event.Name)
+	return strings.HasPrefix(base, "session-") && strings.HasSuffix(base, ".json")
 }
 
 func (w *Watcher) readAndEmit(path string) {

@@ -25,7 +25,7 @@ LoopGuard sits beside your agent as a circuit breaker:
 - **Budget enforcement** — hard pause at $20/session (configurable)
 - **Spin detection** — catches repeated tool calls, error echoes, no-progress stalls
 - **Cost velocity alerts** — warns when burn rate exceeds $2/min
-- **Multi-agent** — monitors Claude Code, Codex, and custom sources simultaneously
+- **Multi-agent** — monitors Claude Code, Codex, Gemini CLI, and custom sources simultaneously
 - **Zero config** — works immediately after install with sane defaults
 - **Process-safe** — SIGSTOP/SIGCONT preserves agent state perfectly
 - **LTF traces** — emits [Loop Trace Format](https://github.com/loop-eng/ltf) events for every intervention
@@ -82,7 +82,7 @@ Agent Session (JSONL logs)
                               └────────────────────────────┘
 ```
 
-1. **Discovery** — Scans `~/.claude/projects/` and `~/.codex/sessions/` for active session files
+1. **Discovery** — Scans `~/.claude/projects/`, `~/.codex/sessions/`, and Gemini CLI's `~/.gemini/tmp/` (or `$GEMINI_DATA_DIR/tmp/`) for active session files
 2. **Watcher** — Tails JSONL files via fsnotify with 100ms debounce + 5s polling fallback
 3. **Analyzer** — Calculates real-time cost from token usage, detects spin patterns, enforces budgets
 4. **Enforcer** — Pauses the agent process via SIGSTOP, sends a desktop notification, writes an LTF trace event
@@ -109,6 +109,7 @@ spin_detection:
   error_echo: 3               # same error N times → spin
   stall_minutes: 10           # no file changes for N min → warn
   cost_velocity_per_min: 2.0  # $/min threshold
+  context_fill_percent: 85    # context window fill % → spin (0 disables)
 
 enforcement:
   action: pause               # pause | kill | warn
@@ -161,7 +162,7 @@ export LOOPGUARD_LOG_LEVEL=debug
 
 ## Spin Detection
 
-LoopGuard uses four independent heuristics to detect unproductive loops:
+LoopGuard uses five independent heuristics to detect unproductive loops:
 
 | Heuristic | What It Catches | Default Threshold |
 |-----------|----------------|-------------------|
@@ -169,6 +170,7 @@ LoopGuard uses four independent heuristics to detect unproductive loops:
 | **Error echo** | Same error message repeating | 3 identical errors |
 | **No-progress stall** | Token spend without file modifications | 10 minutes |
 | **Cost velocity** | Burn rate exceeding $/min threshold | $2.00/min |
+| **Context bloat** | Context window filling up (estimated from `input_tokens` vs. the model's known context window) | 85% full |
 
 ## Supported Models (Pricing)
 

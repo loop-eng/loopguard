@@ -3,6 +3,7 @@ package analyzer
 import (
 	"crypto/sha256"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,9 +20,9 @@ type SpinDetector struct {
 	cfg SpinConfig
 
 	// Circular buffer of recent tool calls
-	recentTools  []toolFingerprint
-	toolHead     int
-	toolCount    int
+	recentTools []toolFingerprint
+	toolHead    int
+	toolCount   int
 
 	// Error tracking
 	recentErrors []string
@@ -34,6 +35,11 @@ type SpinDetector struct {
 
 	// Cost velocity
 	costWindow []timedCost
+
+	// Context bloat tracking
+	contextWindows       map[string]int       // exact model name -> context window size
+	sortedContextEntries []contextWindowEntry // same data, sorted by name length desc for prefix matching
+	lastModel            string               // most recently seen model name
 }
 
 type SpinConfig struct {
@@ -41,7 +47,13 @@ type SpinConfig struct {
 	ErrorEcho          int
 	StallMinutes       int
 	CostVelocityPerMin float64
+	ContextFillPercent int // threshold percentage (e.g. 85); 0 disables the check
 	WindowSize         int // circular buffer size
+}
+
+type contextWindowEntry struct {
+	name   string
+	window int
 }
 
 type toolFingerprint struct {
@@ -60,15 +72,31 @@ func DefaultSpinConfig() SpinConfig {
 		ErrorEcho:          3,
 		StallMinutes:       10,
 		CostVelocityPerMin: 2.0,
+		ContextFillPercent: 85,
 		WindowSize:         50,
 	}
 }
 
 func NewSpinDetector(cfg SpinConfig) *SpinDetector {
+	windows := ModelContextWindows()
+	sorted := make([]contextWindowEntry, 0, len(windows))
+	for name, w := range windows {
+		sorted = append(sorted, contextWindowEntry{name: name, window: w})
+	}
+	// Sort by name length descending for deterministic longest-prefix matching
+	// (map iteration order is random; without this, a versioned model name
+	// like "claude-sonnet-4-6-20260714" could non-deterministically match a
+	// shorter unrelated prefix).
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].name) > len(sorted[j].name)
+	})
+
 	return &SpinDetector{
-		cfg:          cfg,
-		recentTools:  make([]toolFingerprint, cfg.WindowSize),
-		recentErrors: make([]string, cfg.WindowSize),
+		cfg:                  cfg,
+		recentTools:          make([]toolFingerprint, cfg.WindowSize),
+		recentErrors:         make([]string, cfg.WindowSize),
+		contextWindows:       windows,
+		sortedContextEntries: sorted,
 	}
 }
 
@@ -122,6 +150,17 @@ func (sd *SpinDetector) Check(event *parser.ParsedEvent, sessionCost float64) Sp
 			result.Reasons = append(result.Reasons, r)
 			if result.Heuristic == "" {
 				result.Heuristic = "cost_velocity"
+			}
+		}
+	}
+
+	// Context bloat detection
+	if event.Tokens.InputTokens > 0 {
+		if r := sd.checkContextBloat(event); r != "" {
+			result.IsSpinning = true
+			result.Reasons = append(result.Reasons, r)
+			if result.Heuristic == "" {
+				result.Heuristic = "context_bloat"
 			}
 		}
 	}
@@ -238,6 +277,50 @@ func (sd *SpinDetector) checkCostVelocity() string {
 		return fmt.Sprintf("cost velocity $%.2f/min exceeds threshold $%.2f/min", velocity, sd.cfg.CostVelocityPerMin)
 	}
 	return ""
+}
+
+// checkContextBloat estimates how full the model's context window is using
+// the input_tokens of the current event (the full prompt sent to the model
+// for this turn, including accumulated conversation history). It returns a
+// human-readable reason string if the fill percentage meets or exceeds the
+// configured threshold, or "" otherwise.
+func (sd *SpinDetector) checkContextBloat(event *parser.ParsedEvent) string {
+	if sd.cfg.ContextFillPercent <= 0 {
+		return ""
+	}
+
+	if event.Model != "" {
+		sd.lastModel = event.Model
+	}
+
+	contextWindow := sd.resolveContextWindow(sd.lastModel)
+	inputTokens := event.Tokens.InputTokens
+
+	fillPct := (inputTokens * 100) / contextWindow
+	if fillPct >= sd.cfg.ContextFillPercent {
+		return fmt.Sprintf("context window %d%% full (%d/%d tokens, threshold: %d%%)",
+			fillPct, inputTokens, contextWindow, sd.cfg.ContextFillPercent)
+	}
+	return ""
+}
+
+// resolveContextWindow finds the context window size for a model name,
+// trying an exact match first, then the longest known prefix (to handle
+// dated model versions like "claude-sonnet-4-6-20260714"), falling back to
+// a conservative default when the model is unrecognized.
+func (sd *SpinDetector) resolveContextWindow(model string) int {
+	if model == "" {
+		return FallbackContextWindow
+	}
+	if w, ok := sd.contextWindows[model]; ok {
+		return w
+	}
+	for _, entry := range sd.sortedContextEntries {
+		if strings.HasPrefix(model, entry.name) {
+			return entry.window
+		}
+	}
+	return FallbackContextWindow
 }
 
 func fingerprint(toolName, toolInput string) string {

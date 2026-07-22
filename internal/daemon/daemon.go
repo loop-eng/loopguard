@@ -22,10 +22,10 @@ import (
 )
 
 type Daemon struct {
-	logger   *slog.Logger
-	cfg      *config.Config
-	ctx      context.Context
-	cancel   context.CancelFunc
+	logger *slog.Logger
+	cfg    *config.Config
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	registry    *discovery.Registry
 	discoverers []discovery.Discoverer
@@ -60,6 +60,7 @@ func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
 		ErrorEcho:          cfg.SpinDetection.ErrorEcho,
 		StallMinutes:       cfg.SpinDetection.StallMinutes,
 		CostVelocityPerMin: cfg.SpinDetection.CostVelocityPerMin,
+		ContextFillPercent: cfg.SpinDetection.ContextFillPercent,
 		WindowSize:         50,
 	}
 
@@ -70,6 +71,9 @@ func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
 	}
 	if cfg.Sources.Codex != "disabled" {
 		discoverers = append(discoverers, discovery.NewCodexDiscoverer(logger))
+	}
+	if cfg.Sources.Gemini != "disabled" {
+		discoverers = append(discoverers, discovery.NewGeminiDiscoverer(logger))
 	}
 	for _, customPath := range cfg.Sources.Custom {
 		discoverers = append(discoverers, discovery.NewCustomDiscoverer(logger, []string{customPath}))
@@ -91,6 +95,7 @@ func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
 		parsers: map[string]parser.Parser{
 			"claude": parser.NewClaudeParser(),
 			"codex":  parser.NewCodexParser(),
+			"gemini": parser.NewGeminiParser(),
 		},
 		paused: make(map[string]bool),
 	}

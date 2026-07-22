@@ -2,12 +2,22 @@ package watcher
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 )
 
 const maxLineSize = 1 << 20 // 1 MB — discard lines larger than this
+
+// maxWholeFileSize bounds whole-file reads (see wholeFile mode below).
+// Legacy Gemini CLI conversation files are monolithic JSON rewritten in
+// full on every turn, so they can grow much larger than a single JSONL
+// line; 50 MB is a generous ceiling that still prevents unbounded memory
+// use from a runaway or corrupted file.
+const maxWholeFileSize = 50 << 20
 
 type Tailer struct {
 	mu            sync.Mutex
@@ -15,15 +25,45 @@ type Tailer struct {
 	offset        int64
 	buf           []byte
 	skipToNewline bool
+
+	// wholeFile is true for paths that are rewritten in full on every
+	// change rather than appended to (e.g. legacy Gemini CLI
+	// "session-*.json" conversation files). For these, byte-offset tailing
+	// is incorrect — instead the entire file is re-read on each change and
+	// returned as a single chunk when its content differs from the last
+	// read.
+	wholeFile bool
+	lastHash  [32]byte
+	hasHash   bool
 }
 
+// NewTailer creates a tailer for path. Files ending in ".json" (but not
+// ".jsonl") are treated as whole-file-rewrite sources; everything else is
+// tailed by byte offset as an append-only line stream.
 func NewTailer(path string) *Tailer {
-	return &Tailer{path: path}
+	return &Tailer{
+		path:      path,
+		wholeFile: strings.HasSuffix(path, ".json"),
+	}
 }
 
 func (t *Tailer) SeekEnd() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if t.wholeFile {
+		data, err := os.ReadFile(t.path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		t.lastHash = sha256.Sum256(data)
+		t.hasHash = true
+		return nil
+	}
+
 	info, err := os.Stat(t.path)
 	if err != nil {
 		return err
@@ -32,9 +72,39 @@ func (t *Tailer) SeekEnd() error {
 	return nil
 }
 
+// readWholeFile re-reads path in full and returns its content as a single
+// element slice, but only when the content differs from the last read
+// (tracked via a content hash) — this avoids re-emitting identical data on
+// every poll/fsnotify tick for a file that hasn't actually changed.
+func (t *Tailer) readWholeFile() ([][]byte, error) {
+	data, err := os.ReadFile(t.path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if len(data) > maxWholeFileSize {
+		return nil, fmt.Errorf("file exceeds whole-file read limit: %d bytes > %d", len(data), maxWholeFileSize)
+	}
+
+	sum := sha256.Sum256(data)
+	if t.hasHash && sum == t.lastHash {
+		return nil, nil
+	}
+	t.lastHash = sum
+	t.hasHash = true
+
+	return [][]byte{data}, nil
+}
+
 func (t *Tailer) ReadNewLines() ([][]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if t.wholeFile {
+		return t.readWholeFile()
+	}
 
 	f, err := os.Open(t.path)
 	if err != nil {

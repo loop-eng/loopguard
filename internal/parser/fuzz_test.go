@@ -37,3 +37,34 @@ func FuzzCodexParser(f *testing.F) {
 		p.Parse(data)
 	})
 }
+
+func FuzzGeminiParser(f *testing.F) {
+	p := NewGeminiParser()
+
+	// JSONL (current) format seeds.
+	f.Add([]byte(`{"type":"session_metadata","sessionId":"s1","projectHash":"abc","startTime":"2026-07-10T10:00:00Z"}`))
+	f.Add([]byte(`{"type":"gemini","id":"msg2","content":[{"text":"Hi"}]}`))
+	f.Add([]byte(`{"type":"gemini","id":"msg3","content":[{"functionCall":{"name":"run_shell_command","args":{"command":"npm test"}}}]}`))
+	f.Add([]byte(`{"type":"user","id":"msg4","content":[{"functionResponse":{"name":"run_shell_command","response":"ok"}}]}`))
+	f.Add([]byte(`{"type":"user","id":"msg5","content":[{"functionResponse":{"name":"run_shell_command","response":{"error":"boom"}}}]}`))
+	f.Add([]byte(`{"type":"message_update","id":"msg2","tokens":{"input":10,"output":5}}`))
+	f.Add([]byte(`{"type":"unknown_future_type"}`))
+
+	// Legacy monolithic JSON conversation seeds.
+	f.Add([]byte(`{"sessionId":"legacy-1","messages":[{"role":"user","parts":[{"text":"Hello"}]},{"role":"model","parts":[{"text":"Hi there"}],"usageMetadata":{"promptTokenCount":1171,"candidatesTokenCount":44,"totalTokenCount":1298,"cachedContentTokenCount":0,"thoughtsTokenCount":83},"modelVersion":"gemini-2.5-flash"}]}`))
+	f.Add([]byte(`{"sessionId":"legacy-2","messages":[{"role":"model","parts":[{"functionCall":{"name":"edit_file","args":{"path":"/a.go"}}}]}]}`))
+	f.Add([]byte(`{"sessionId":"legacy-3","messages":[]}`))
+
+	// Malformed / edge-case seeds.
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`not json`))
+	f.Add([]byte(``))
+	f.Add([]byte(`{"type":"gemini","content":[{"functionCall":{"name":"x","args":null}}]}`))
+	f.Add([]byte(`{"sessionId":"legacy-4","messages":[{"role":"user","parts":null}]}`))
+	f.Add([]byte(`{"type":"user","content":[{"functionResponse":{"response":null}}]}`))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Must not panic on any input, JSONL or legacy shape.
+		p.Parse(data)
+	})
+}
