@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -31,10 +32,33 @@ detects runaway loops, enforces budget limits, and pauses offending processes.
 
 Run without arguments to start the daemon in the foreground.
 Use 'loopguard install' to set up auto-start on login.`,
-	Version:       version + " (" + commit + ") " + date,
 	RunE:          runDaemon,
 	SilenceErrors: true,
 	SilenceUsage:  true,
+}
+
+// init finalizes the version string reported by --version. GoReleaser and
+// Homebrew builds inject version/commit/date via -ldflags (see Makefile and
+// .goreleaser.yaml) — the -X linker flag patches the string literals above
+// before any Go code runs, so `version` already holds the real value here
+// in that case. Plain `go install module@vX.Y.Z` builds don't support
+// -ldflags, so version stays at its "dev" default; in that case, fall back
+// to the Go module version embedded by the toolchain's build info.
+//
+// This must run in an init() rather than being computed inline in the
+// rootCmd struct literal above: package-level variable initializers
+// (including rootCmd's) all complete before any init() function runs, so
+// setting rootCmd.Version as part of the literal would freeze in "dev"
+// before this fallback ever had a chance to run.
+func init() {
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			if info.Main.Version != "" && info.Main.Version != "(devel)" {
+				version = info.Main.Version
+			}
+		}
+	}
+	rootCmd.Version = version + " (" + commit + ") " + date
 }
 
 func Execute() error {
