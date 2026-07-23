@@ -146,6 +146,8 @@ func (d *Daemon) Run() error {
 	go func() { defer d.wg.Done(); d.rediscoveryLoop() }()
 	d.wg.Add(1)
 	go func() { defer d.wg.Done(); d.watchConfig() }()
+	d.wg.Add(1)
+	go func() { defer d.wg.Done(); d.reapDeadPausedSessions() }()
 
 	d.processEvents()
 
@@ -181,6 +183,7 @@ func (d *Daemon) GetSessions() []api.SessionInfo {
 			Cost:       cost,
 			Active:     s.Active,
 			Paused:     pausedCopy[s.ID],
+			Terminated: s.Terminated,
 			StartedAt:  s.StartedAt,
 		}
 	}
@@ -191,6 +194,10 @@ func (d *Daemon) ResumeSession(ctx context.Context, sessionID string) error {
 	session, ok := d.registry.Get(sessionID)
 	if !ok {
 		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	if session.Terminated {
+		return fmt.Errorf("session %s terminated — process no longer exists", sessionID)
 	}
 
 	d.pausedMu.RLock()
@@ -558,6 +565,69 @@ func (d *Daemon) reloadConfig(path string) {
 		"budget_per_session", newCfg.Budget.PerSessionUSD,
 		"budget_per_session_was", oldCfg.Budget.PerSessionUSD,
 	)
+}
+
+func (d *Daemon) reapDeadPausedSessions() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.checkPausedSessions()
+		}
+	}
+}
+
+func (d *Daemon) checkPausedSessions() {
+	d.pausedMu.RLock()
+	pausedIDs := make([]string, 0, len(d.paused))
+	for id := range d.paused {
+		pausedIDs = append(pausedIDs, id)
+	}
+	d.pausedMu.RUnlock()
+
+	for _, id := range pausedIDs {
+		session, ok := d.registry.Get(id)
+		if !ok {
+			d.pausedMu.Lock()
+			delete(d.paused, id)
+			d.pausedMu.Unlock()
+			continue
+		}
+
+		if session.PID > 0 && enforcer.ProcessAlive(session.PID) {
+			continue
+		}
+
+		d.logger.Warn("paused session process exited",
+			"session", id,
+			"pid", session.PID,
+			"agent", session.Agent,
+		)
+
+		d.pausedMu.Lock()
+		delete(d.paused, id)
+		d.pausedMu.Unlock()
+
+		d.registry.Update(id, func(s *discovery.Session) {
+			s.Active = false
+			s.Terminated = true
+		})
+
+		if session.ProjectDir != "" {
+			_ = enforcer.RemoveSentinel(session.ProjectDir)
+		}
+
+		cost := d.analyzer.SessionCost(id)
+		d.history.Record(id, session.Agent, "terminated", "process_exited_while_paused", cost)
+		d.ltfEmitter.EmitIntervention(id, session.Agent, "terminated", "process_exited_while_paused", cost)
+
+		msg := fmt.Sprintf("Session %s (%s) — process exited while paused. PID %d no longer exists.",
+			truncateID(id, 8), session.Agent, session.PID)
+		_ = d.notifier.Send(d.ctx, "LoopGuard: Session Terminated", msg, notify.UrgencyNormal)
+	}
 }
 
 func (d *Daemon) inferSessionInfo(path string) (agent, projectDir string) {

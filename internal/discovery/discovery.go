@@ -12,6 +12,7 @@ type Session struct {
 	ProjectDir string
 	PID        int
 	Active     bool
+	Terminated bool
 	StartedAt  time.Time
 	LastEvent  time.Time
 }

@@ -12,6 +12,7 @@ type SessionInfo struct {
 	Cost       float64   `json:"cost"`
 	Active     bool      `json:"active"`
 	Paused     bool      `json:"paused"`
+	Terminated bool      `json:"terminated"`
 	StartedAt  time.Time `json:"started_at"`
 }
 

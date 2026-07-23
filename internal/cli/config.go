@@ -58,6 +58,14 @@ sources:
   gemini: auto              # auto | disabled
   custom: []                # additional glob patterns to watch
 
+logging:
+  level: info
+  file: ~/.config/loopguard/loopguard.log
+  max_size_mb: 50           # rotate when file exceeds this size
+  max_backups: 3            # keep at most N old log files
+  max_age_days: 30          # delete rotated files older than N days
+  compress: true            # gzip rotated log files
+
 # Pricing overrides (optional):
 # pricing:
 #   my-custom-model:

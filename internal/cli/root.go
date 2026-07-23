@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/lumberjack.v2"
 
 	"github.com/loop-eng/loopguard/internal/api"
 	"github.com/loop-eng/loopguard/internal/config"
@@ -119,11 +120,16 @@ func setupLogger(cfg *config.Config, verbose bool) (*slog.Logger, func()) {
 		if info, err := os.Lstat(cfg.Logging.File); err == nil && info.Mode()&os.ModeSymlink != 0 {
 			slog.Warn("refusing to follow symlink for log file", "path", cfg.Logging.File)
 		} else {
-			f, err := os.OpenFile(cfg.Logging.File, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-			if err == nil {
-				w = io.MultiWriter(os.Stderr, f)
-				cleanup = func() { f.Close() }
+			lj := &lumberjack.Logger{
+				Filename:   cfg.Logging.File,
+				MaxSize:    cfg.Logging.MaxSizeMB,
+				MaxBackups: cfg.Logging.MaxBackups,
+				MaxAge:     cfg.Logging.MaxAgeDays,
+				Compress:   cfg.Logging.Compress,
+				LocalTime:  true,
 			}
+			w = io.MultiWriter(os.Stderr, lj)
+			cleanup = func() { _ = lj.Close() }
 		}
 	}
 

@@ -68,8 +68,12 @@ type TracesConfig struct {
 }
 
 type LoggingConfig struct {
-	Level string `yaml:"level"`
-	File  string `yaml:"file"`
+	Level      string `yaml:"level"`
+	File       string `yaml:"file"`
+	MaxSizeMB  int    `yaml:"max_size_mb"`
+	MaxBackups int    `yaml:"max_backups"`
+	MaxAgeDays int    `yaml:"max_age_days"`
+	Compress   bool   `yaml:"compress"`
 }
 
 func configDir() string {
@@ -128,6 +132,15 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = defaults.Logging.Level
+	}
+	if cfg.Logging.MaxSizeMB <= 0 {
+		cfg.Logging.MaxSizeMB = defaults.Logging.MaxSizeMB
+	}
+	if cfg.Logging.MaxBackups <= 0 {
+		cfg.Logging.MaxBackups = defaults.Logging.MaxBackups
+	}
+	if cfg.Logging.MaxAgeDays <= 0 {
+		cfg.Logging.MaxAgeDays = defaults.Logging.MaxAgeDays
 	}
 }
 
@@ -216,8 +229,12 @@ func Default() *Config {
 			OutputDir: filepath.Join(dir, "traces"),
 		},
 		Logging: LoggingConfig{
-			Level: "info",
-			File:  filepath.Join(dir, "loopguard.log"),
+			Level:      "info",
+			File:       filepath.Join(dir, "loopguard.log"),
+			MaxSizeMB:  50,
+			MaxBackups: 3,
+			MaxAgeDays: 30,
+			Compress:   true,
 		},
 	}
 }

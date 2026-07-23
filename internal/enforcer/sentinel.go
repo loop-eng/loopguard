@@ -17,6 +17,12 @@ func writeSentinel(projectDir string) error {
 }
 
 func removeSentinel(projectDir string) error {
+	return RemoveSentinel(projectDir)
+}
+
+// RemoveSentinel removes the .loopguard-stop sentinel file from projectDir.
+// Returns nil if the file doesn't exist.
+func RemoveSentinel(projectDir string) error {
 	path := filepath.Join(projectDir, sentinelFileName)
 	err := os.Remove(path)
 	if os.IsNotExist(err) {
