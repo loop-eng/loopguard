@@ -17,7 +17,7 @@ func TestIntegrationSpinDetectionPausesSession(t *testing.T) {
 		StallMinutes:       10,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 
@@ -69,7 +69,7 @@ func TestIntegrationBudgetWarningThenExceeded(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 
@@ -123,7 +123,7 @@ func TestIntegrationBudgetPriorityExceededOverWarning(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 
@@ -167,7 +167,7 @@ func TestIntegrationErrorEchoDetection(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 
@@ -211,7 +211,7 @@ func TestIntegrationNoFalsePositiveOnVariedCalls(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 	tools := []struct{ name, input string }{
@@ -249,7 +249,7 @@ func TestIntegrationCostTracking(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 100,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 	a.Process(ctx, "s1", &parser.ParsedEvent{
@@ -271,7 +271,7 @@ func TestIntegrationRemoveSession(t *testing.T) {
 	a := New(slog.Default(), budget, SpinConfig{
 		RepeatedCalls: 100, ErrorEcho: 100, StallMinutes: 100,
 		CostVelocityPerMin: 100, WindowSize: 50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 	a.Process(ctx, "s1", &parser.ParsedEvent{
@@ -297,7 +297,7 @@ func TestIntegrationStopIdempotent(t *testing.T) {
 	a := New(slog.Default(), budget, SpinConfig{
 		RepeatedCalls: 100, ErrorEcho: 100, StallMinutes: 100,
 		CostVelocityPerMin: 100, WindowSize: 50,
-	})
+	}, nil)
 
 	a.Stop()
 	a.Stop()
@@ -312,7 +312,7 @@ func TestIntegrationCostVelocityDetection(t *testing.T) {
 		StallMinutes:       100,
 		CostVelocityPerMin: 1.0,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 	start := time.Now().Add(-2 * time.Minute)
@@ -359,7 +359,7 @@ func TestIntegrationContextBloatDetection(t *testing.T) {
 		CostVelocityPerMin: 9999,
 		ContextFillPercent: 85,
 		WindowSize:         50,
-	})
+	}, nil)
 
 	ctx := context.Background()
 	// claude-haiku-4-5 has a 200K context window; 190K input tokens is 95%.

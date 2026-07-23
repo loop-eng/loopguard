@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/loop-eng/loopguard/internal/analyzer"
 	"github.com/loop-eng/loopguard/internal/api"
 	"github.com/loop-eng/loopguard/internal/config"
@@ -24,6 +26,8 @@ import (
 type Daemon struct {
 	logger *slog.Logger
 	cfg    *config.Config
+	cfgMu  sync.RWMutex
+	cfgPath string
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -45,7 +49,7 @@ type Daemon struct {
 	wg sync.WaitGroup
 }
 
-func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
+func New(ctx context.Context, logger *slog.Logger, cfg *config.Config, cfgPath string) *Daemon {
 	ctx, cancel := context.WithCancel(ctx)
 
 	budget := analyzer.NewBudgetEnforcer(
@@ -82,12 +86,13 @@ func New(ctx context.Context, logger *slog.Logger, cfg *config.Config) *Daemon {
 	d := &Daemon{
 		logger:      logger,
 		cfg:         cfg,
+		cfgPath:     cfgPath,
 		ctx:         ctx,
 		cancel:      cancel,
 		registry:    discovery.NewRegistry(),
 		discoverers: discoverers,
 		watcher:     watcher.New(logger),
-		analyzer:    analyzer.New(logger, budget, spinCfg),
+		analyzer:    analyzer.New(logger, budget, spinCfg, cfg.Pricing),
 		enforcer:    enforcer.New(logger, cfg.Enforcement.SentinelFallback),
 		notifier:    notify.New(logger, cfg.Notifications.Desktop, cfg.Notifications.Sound),
 		history:     NewHistory(logger, filepath.Join(cfg.Traces.OutputDir, "history.jsonl")),
@@ -139,6 +144,8 @@ func (d *Daemon) Run() error {
 	go func() { defer d.wg.Done(); d.handleAlerts() }()
 	d.wg.Add(1)
 	go func() { defer d.wg.Done(); d.rediscoveryLoop() }()
+	d.wg.Add(1)
+	go func() { defer d.wg.Done(); d.watchConfig() }()
 
 	d.processEvents()
 
@@ -206,6 +213,103 @@ func (d *Daemon) ResumeSession(ctx context.Context, sessionID string) error {
 	})
 
 	return nil
+}
+
+func (d *Daemon) GetSession(id string) (*api.SessionDetailResponse, error) {
+	session, ok := d.registry.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+
+	cost := d.analyzer.SessionCost(id)
+
+	d.pausedMu.RLock()
+	paused := d.paused[id]
+	d.pausedMu.RUnlock()
+
+	return &api.SessionDetailResponse{
+		SessionInfo: api.SessionInfo{
+			ID:         session.ID,
+			Agent:      session.Agent,
+			ProjectDir: session.ProjectDir,
+			Cost:       cost,
+			Active:     session.Active,
+			Paused:     paused,
+			StartedAt:  session.StartedAt,
+		},
+		PID:       session.PID,
+		LogPath:   session.Path,
+		LastEvent: session.LastEvent,
+	}, nil
+}
+
+func (d *Daemon) KillSession(ctx context.Context, sessionID string) error {
+	session, ok := d.registry.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	if err := d.enforcer.Execute(ctx, enforcer.ActionKill, session.PID, session.ProjectDir, "killed via API"); err != nil {
+		return err
+	}
+
+	d.registry.Update(sessionID, func(s *discovery.Session) {
+		s.Active = false
+	})
+
+	d.pausedMu.Lock()
+	delete(d.paused, sessionID)
+	d.pausedMu.Unlock()
+
+	d.history.Record(sessionID, session.Agent, "killed", "api_request", d.analyzer.SessionCost(sessionID))
+	d.ltfEmitter.EmitIntervention(sessionID, session.Agent, "killed", "api_request", d.analyzer.SessionCost(sessionID))
+
+	return nil
+}
+
+func (d *Daemon) GetConfig() api.ConfigSnapshot {
+	d.cfgMu.RLock()
+	cfg := d.cfg
+	d.cfgMu.RUnlock()
+
+	return api.ConfigSnapshot{
+		Budget: api.BudgetSnapshot{
+			PerSessionUSD: cfg.Budget.PerSessionUSD,
+			PerHourUSD:    cfg.Budget.PerHourUSD,
+			PerDayUSD:     cfg.Budget.PerDayUSD,
+			WarnAtPercent: cfg.Budget.WarnAtPercent,
+		},
+		SpinDetection: api.SpinDetectionSnapshot{
+			RepeatedCalls:      cfg.SpinDetection.RepeatedCalls,
+			ErrorEcho:          cfg.SpinDetection.ErrorEcho,
+			StallMinutes:       cfg.SpinDetection.StallMinutes,
+			CostVelocityPerMin: cfg.SpinDetection.CostVelocityPerMin,
+			ContextFillPercent: cfg.SpinDetection.ContextFillPercent,
+		},
+		Enforcement: api.EnforcementSnapshot{
+			Action:           cfg.Enforcement.Action,
+			SentinelFallback: cfg.Enforcement.SentinelFallback,
+		},
+		Notifications: api.NotificationSnapshot{
+			Desktop: cfg.Notifications.Desktop,
+			Sound:   cfg.Notifications.Sound,
+		},
+		Sources: api.SourcesSnapshot{
+			ClaudeCode: cfg.Sources.ClaudeCode,
+			Codex:      cfg.Sources.Codex,
+			Gemini:     cfg.Sources.Gemini,
+			Custom:     cfg.Sources.Custom,
+		},
+		Traces: api.TracesSnapshot{
+			Enabled:   cfg.Traces.Enabled,
+			OutputDir: cfg.Traces.OutputDir,
+		},
+		Logging: api.LoggingSnapshot{
+			Level: cfg.Logging.Level,
+			File:  cfg.Logging.File,
+		},
+		ConfigPath: config.DefaultPath(),
+	}
 }
 
 func (d *Daemon) discoverSessions() {
@@ -350,6 +454,110 @@ func (d *Daemon) executeAlert(alert analyzer.Alert) {
 		d.ltfEmitter.EmitIntervention(alert.SessionID, session.Agent, "killed", alert.Trigger, alert.Cost)
 		d.ltfEmitter.EmitSessionEnd(alert.SessionID, session.Agent, alert.Trigger, alert.Cost, session.StartedAt)
 	}
+}
+
+func (d *Daemon) watchConfig() {
+	path := d.cfgPath
+	if path == "" {
+		path = config.DefaultPath()
+	}
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		d.logger.Error("cannot watch config file", "error", err)
+		return
+	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			d.logger.Error("config watcher close error", "error", err)
+		}
+	}()
+
+	// Watch the directory (not the file) so we catch editors that do
+	// atomic write-rename (vim, sed -i, etc.).
+	dir := filepath.Dir(path)
+	if err := w.Add(dir); err != nil {
+		d.logger.Error("cannot watch config directory", "error", err, "dir", dir)
+		return
+	}
+
+	var debounce *time.Timer
+	for {
+		select {
+		case <-d.ctx.Done():
+			if debounce != nil {
+				debounce.Stop()
+			}
+			return
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			base := filepath.Base(event.Name)
+			if base != filepath.Base(path) {
+				continue
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(500*time.Millisecond, func() {
+				d.reloadConfig(path)
+			})
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			d.logger.Error("config watcher error", "error", err)
+		}
+	}
+}
+
+func (d *Daemon) reloadConfig(path string) {
+	newCfg, err := config.Load(path)
+	if err != nil {
+		d.logger.Error("config reload failed: parse error", "error", err)
+		return
+	}
+
+	if err := config.Validate(newCfg); err != nil {
+		d.logger.Error("config reload failed: validation error", "error", err)
+		return
+	}
+
+	d.cfgMu.Lock()
+	oldCfg := d.cfg
+	d.cfg = newCfg
+	d.cfgMu.Unlock()
+
+	d.analyzer.UpdateBudget(
+		newCfg.Budget.PerSessionUSD,
+		newCfg.Budget.PerHourUSD,
+		newCfg.Budget.PerDayUSD,
+		newCfg.Budget.WarnAtPercent,
+	)
+
+	d.analyzer.UpdateSpinConfig(analyzer.SpinConfig{
+		RepeatedCalls:      newCfg.SpinDetection.RepeatedCalls,
+		ErrorEcho:          newCfg.SpinDetection.ErrorEcho,
+		StallMinutes:       newCfg.SpinDetection.StallMinutes,
+		CostVelocityPerMin: newCfg.SpinDetection.CostVelocityPerMin,
+		ContextFillPercent: newCfg.SpinDetection.ContextFillPercent,
+		WindowSize:         50,
+	})
+
+	d.notifier.UpdateSettings(newCfg.Notifications.Desktop, newCfg.Notifications.Sound)
+
+	if len(newCfg.Pricing) > 0 {
+		d.analyzer.UpdatePricing(newCfg.Pricing)
+	}
+
+	d.logger.Info("config reloaded",
+		"budget_per_session", newCfg.Budget.PerSessionUSD,
+		"budget_per_session_was", oldCfg.Budget.PerSessionUSD,
+	)
 }
 
 func (d *Daemon) inferSessionInfo(path string) (agent, projectDir string) {

@@ -11,13 +11,23 @@ import (
 )
 
 type Config struct {
-	Budget        BudgetConfig        `yaml:"budget"`
-	SpinDetection SpinDetectionConfig `yaml:"spin_detection"`
-	Enforcement   EnforcementConfig   `yaml:"enforcement"`
-	Notifications NotificationConfig  `yaml:"notifications"`
-	Sources       SourcesConfig       `yaml:"sources"`
-	Traces        TracesConfig        `yaml:"traces"`
-	Logging       LoggingConfig       `yaml:"logging"`
+	Budget        BudgetConfig              `yaml:"budget"`
+	SpinDetection SpinDetectionConfig       `yaml:"spin_detection"`
+	Enforcement   EnforcementConfig         `yaml:"enforcement"`
+	Notifications NotificationConfig        `yaml:"notifications"`
+	Sources       SourcesConfig             `yaml:"sources"`
+	Traces        TracesConfig              `yaml:"traces"`
+	Logging       LoggingConfig             `yaml:"logging"`
+	Pricing       map[string]PricingOverride `yaml:"pricing"`
+}
+
+// PricingOverride allows users to override or add model pricing in config.yaml.
+// Values are in USD per million tokens.
+type PricingOverride struct {
+	InputPerMTok      float64 `yaml:"input_per_mtok"`
+	OutputPerMTok     float64 `yaml:"output_per_mtok"`
+	CacheReadPerMTok  float64 `yaml:"cache_read_per_mtok"`
+	CacheWritePerMTok float64 `yaml:"cache_write_per_mtok"`
 }
 
 type BudgetConfig struct {
@@ -144,6 +154,32 @@ func applyEnvOverrides(cfg *Config) {
 
 func DefaultPath() string {
 	return filepath.Join(configDir(), "config.yaml")
+}
+
+// Validate checks that a loaded config has sane values.
+func Validate(cfg *Config) error {
+	if cfg.Budget.PerSessionUSD < 0 {
+		return fmt.Errorf("budget.per_session_usd must be >= 0, got %.2f", cfg.Budget.PerSessionUSD)
+	}
+	if cfg.Budget.PerHourUSD < 0 {
+		return fmt.Errorf("budget.per_hour_usd must be >= 0, got %.2f", cfg.Budget.PerHourUSD)
+	}
+	if cfg.Budget.PerDayUSD < 0 {
+		return fmt.Errorf("budget.per_day_usd must be >= 0, got %.2f", cfg.Budget.PerDayUSD)
+	}
+	if cfg.Budget.WarnAtPercent < 0 || cfg.Budget.WarnAtPercent > 100 {
+		return fmt.Errorf("budget.warn_at_percent must be 0-100, got %d", cfg.Budget.WarnAtPercent)
+	}
+	if cfg.SpinDetection.RepeatedCalls < 1 {
+		return fmt.Errorf("spin_detection.repeated_calls must be >= 1, got %d", cfg.SpinDetection.RepeatedCalls)
+	}
+	if cfg.SpinDetection.ErrorEcho < 1 {
+		return fmt.Errorf("spin_detection.error_echo must be >= 1, got %d", cfg.SpinDetection.ErrorEcho)
+	}
+	if cfg.SpinDetection.ContextFillPercent < 0 || cfg.SpinDetection.ContextFillPercent > 100 {
+		return fmt.Errorf("spin_detection.context_fill_percent must be 0-100, got %d", cfg.SpinDetection.ContextFillPercent)
+	}
+	return nil
 }
 
 func Default() *Config {

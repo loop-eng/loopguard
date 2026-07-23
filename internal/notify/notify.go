@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,7 @@ const (
 )
 
 type Notifier struct {
+	mu      sync.RWMutex
 	logger  *slog.Logger
 	enabled bool
 	sound   bool
@@ -31,8 +33,21 @@ func New(logger *slog.Logger, enabled, sound bool) *Notifier {
 	}
 }
 
+// UpdateSettings updates notification settings at runtime (config hot-reload).
+func (n *Notifier) UpdateSettings(desktop, sound bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.enabled = desktop
+	n.sound = sound
+}
+
 func (n *Notifier) Send(ctx context.Context, title, message string, urgency Urgency) error {
-	if !n.enabled {
+	n.mu.RLock()
+	enabled := n.enabled
+	sound := n.sound
+	n.mu.RUnlock()
+
+	if !enabled {
 		return nil
 	}
 	n.logger.InfoContext(ctx, "notification", "title", title, "message", message)
@@ -42,7 +57,7 @@ func (n *Notifier) Send(ctx context.Context, title, message string, urgency Urge
 
 	switch runtime.GOOS {
 	case "darwin":
-		return n.sendDarwin(ctx, title, message, urgency)
+		return n.sendDarwin(ctx, title, message, urgency, sound)
 	case "linux":
 		return n.sendLinux(ctx, title, message, urgency)
 	default:
@@ -51,14 +66,14 @@ func (n *Notifier) Send(ctx context.Context, title, message string, urgency Urge
 	}
 }
 
-func (n *Notifier) sendDarwin(ctx context.Context, title, message string, urgency Urgency) error {
+func (n *Notifier) sendDarwin(ctx context.Context, title, message string, urgency Urgency, playSound bool) error {
 	var soundClause string
-	if n.sound {
-		sound := "Glass"
+	if playSound {
+		snd := "Glass"
 		if urgency == UrgencyCritical {
-			sound = "Basso"
+			snd = "Basso"
 		}
-		soundClause = fmt.Sprintf(` sound name "%s"`, escapeAppleScript(sound))
+		soundClause = fmt.Sprintf(` sound name "%s"`, escapeAppleScript(snd))
 	}
 	script := fmt.Sprintf(
 		`display notification "%s" with title "%s"%s`,

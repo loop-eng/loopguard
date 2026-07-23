@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/loop-eng/loopguard/internal/config"
 	"github.com/loop-eng/loopguard/internal/parser"
 )
 
@@ -57,17 +58,40 @@ type sessionState struct {
 	cost float64
 }
 
-func New(logger *slog.Logger, budget *BudgetEnforcer, spinCfg SpinConfig) *Analyzer {
+func New(logger *slog.Logger, budget *BudgetEnforcer, spinCfg SpinConfig, pricingOverrides map[string]config.PricingOverride) *Analyzer {
 	return &Analyzer{
 		logger:   logger,
 		alerts:   make(chan Alert, 64),
-		costCalc: NewCostCalculator(logger),
+		costCalc: NewCostCalculator(logger, pricingOverrides),
 		budget:   budget,
 		spinCfg:  spinCfg,
 		done:     make(chan struct{}),
 		sessions: make(map[string]*sessionState),
 		warned:   make(map[string]bool),
 	}
+}
+
+// UpdateBudget updates the budget enforcer's limits at runtime (hot-reload).
+func (a *Analyzer) UpdateBudget(perSession, perHour, perDay float64, warnPct int) {
+	a.budget.UpdateLimits(perSession, perHour, perDay, warnPct)
+
+	a.mu.Lock()
+	a.warned = make(map[string]bool)
+	a.mu.Unlock()
+}
+
+// UpdateSpinConfig updates spin detection thresholds for new sessions.
+// Existing sessions keep their current spin detectors to avoid resetting
+// in-flight detection state.
+func (a *Analyzer) UpdateSpinConfig(cfg SpinConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.spinCfg = cfg
+}
+
+// UpdatePricing replaces the pricing table with defaults + new overrides.
+func (a *Analyzer) UpdatePricing(overrides map[string]config.PricingOverride) {
+	a.costCalc.MergePricing(overrides)
 }
 
 func (a *Analyzer) Alerts() <-chan Alert {

@@ -106,3 +106,103 @@ func TestEnvOverrides(t *testing.T) {
 		t.Errorf("Level = %v, want debug (from env)", cfg.Logging.Level)
 	}
 }
+
+func TestValidateValid(t *testing.T) {
+	cfg := Default()
+	if err := Validate(cfg); err != nil {
+		t.Errorf("default config should be valid, got: %v", err)
+	}
+}
+
+func TestValidateNegativeBudget(t *testing.T) {
+	cfg := Default()
+	cfg.Budget.PerSessionUSD = -1.0
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for negative per_session_usd")
+	}
+
+	cfg = Default()
+	cfg.Budget.PerHourUSD = -0.5
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for negative per_hour_usd")
+	}
+
+	cfg = Default()
+	cfg.Budget.PerDayUSD = -10
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for negative per_day_usd")
+	}
+}
+
+func TestValidateWarnPercent(t *testing.T) {
+	cfg := Default()
+	cfg.Budget.WarnAtPercent = 101
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for warn_at_percent > 100")
+	}
+
+	cfg = Default()
+	cfg.Budget.WarnAtPercent = -1
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for warn_at_percent < 0")
+	}
+}
+
+func TestValidateSpinDetection(t *testing.T) {
+	cfg := Default()
+	cfg.SpinDetection.RepeatedCalls = 0
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for repeated_calls < 1")
+	}
+
+	cfg = Default()
+	cfg.SpinDetection.ErrorEcho = 0
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for error_echo < 1")
+	}
+}
+
+func TestValidateContextFillPercent(t *testing.T) {
+	cfg := Default()
+	cfg.SpinDetection.ContextFillPercent = 101
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for context_fill_percent > 100")
+	}
+}
+
+func TestLoadPricingOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+pricing:
+  my-custom-model:
+    input_per_mtok: 1.5
+    output_per_mtok: 6.0
+  claude-opus-4-8:
+    input_per_mtok: 10.0
+    output_per_mtok: 50.0
+    cache_read_per_mtok: 1.0
+    cache_write_per_mtok: 12.5
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if len(cfg.Pricing) != 2 {
+		t.Fatalf("expected 2 pricing overrides, got %d", len(cfg.Pricing))
+	}
+	custom := cfg.Pricing["my-custom-model"]
+	if custom.InputPerMTok != 1.5 {
+		t.Errorf("InputPerMTok = %v, want 1.5", custom.InputPerMTok)
+	}
+	opus := cfg.Pricing["claude-opus-4-8"]
+	if opus.OutputPerMTok != 50.0 {
+		t.Errorf("OutputPerMTok = %v, want 50.0", opus.OutputPerMTok)
+	}
+}

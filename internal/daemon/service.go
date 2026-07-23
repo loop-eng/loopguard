@@ -21,22 +21,23 @@ func ServiceConfig() *service.Config {
 }
 
 type program struct {
-	daemon *Daemon
-	logger *slog.Logger
-	cfg    *config.Config
-	cancel context.CancelFunc
-	done   chan struct{}
+	daemon  *Daemon
+	logger  *slog.Logger
+	cfg     *config.Config
+	cfgPath string
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
-func NewProgram(logger *slog.Logger, cfg *config.Config) *program {
-	return &program{logger: logger, cfg: cfg}
+func NewProgram(logger *slog.Logger, cfg *config.Config, cfgPath string) *program {
+	return &program{logger: logger, cfg: cfg, cfgPath: cfgPath}
 }
 
 func (p *program) Start(s service.Service) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	p.done = make(chan struct{})
-	p.daemon = New(ctx, p.logger, p.cfg)
+	p.daemon = New(ctx, p.logger, p.cfg, p.cfgPath)
 	go func() {
 		_ = p.daemon.Run()
 		close(p.done)
@@ -57,8 +58,8 @@ func (p *program) Stop(s service.Service) error {
 	return nil
 }
 
-func InstallService(logger *slog.Logger, cfg *config.Config) error {
-	prg := NewProgram(logger, cfg)
+func InstallService(logger *slog.Logger, cfg *config.Config, cfgPath string) error {
+	prg := NewProgram(logger, cfg, cfgPath)
 	svc, err := service.New(prg, ServiceConfig())
 	if err != nil {
 		return err
@@ -66,8 +67,8 @@ func InstallService(logger *slog.Logger, cfg *config.Config) error {
 	return svc.Install()
 }
 
-func UninstallService(logger *slog.Logger, cfg *config.Config) error {
-	prg := NewProgram(logger, cfg)
+func UninstallService(logger *slog.Logger, cfg *config.Config, cfgPath string) error {
+	prg := NewProgram(logger, cfg, cfgPath)
 	svc, err := service.New(prg, ServiceConfig())
 	if err != nil {
 		return err
@@ -75,8 +76,8 @@ func UninstallService(logger *slog.Logger, cfg *config.Config) error {
 	return svc.Uninstall()
 }
 
-func StartService(logger *slog.Logger, cfg *config.Config) error {
-	prg := NewProgram(logger, cfg)
+func StartService(logger *slog.Logger, cfg *config.Config, cfgPath string) error {
+	prg := NewProgram(logger, cfg, cfgPath)
 	svc, err := service.New(prg, ServiceConfig())
 	if err != nil {
 		return err
@@ -84,8 +85,8 @@ func StartService(logger *slog.Logger, cfg *config.Config) error {
 	return svc.Start()
 }
 
-func StopService(logger *slog.Logger, cfg *config.Config) error {
-	prg := NewProgram(logger, cfg)
+func StopService(logger *slog.Logger, cfg *config.Config, cfgPath string) error {
+	prg := NewProgram(logger, cfg, cfgPath)
 	svc, err := service.New(prg, ServiceConfig())
 	if err != nil {
 		return err
@@ -93,8 +94,8 @@ func StopService(logger *slog.Logger, cfg *config.Config) error {
 	return svc.Stop()
 }
 
-func RunAsService(logger *slog.Logger, cfg *config.Config) error {
-	prg := NewProgram(logger, cfg)
+func RunAsService(logger *slog.Logger, cfg *config.Config, cfgPath string) error {
+	prg := NewProgram(logger, cfg, cfgPath)
 	svc, err := service.New(prg, ServiceConfig())
 	if err != nil {
 		return err

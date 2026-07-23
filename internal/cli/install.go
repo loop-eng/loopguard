@@ -24,7 +24,7 @@ var installCmd = &cobra.Command{
 		}
 		logger := slog.Default()
 
-		if err := daemon.InstallService(logger, cfg); err != nil {
+		if err := daemon.InstallService(logger, cfg, ""); err != nil {
 			return fmt.Errorf("install failed: %w", err)
 		}
 
@@ -53,9 +53,9 @@ var uninstallCmd = &cobra.Command{
 		}
 
 		// Ignore stop errors — service might not be running.
-		_ = daemon.StopService(slog.Default(), cfg)
+		_ = daemon.StopService(slog.Default(), cfg, "")
 
-		if err := daemon.UninstallService(slog.Default(), cfg); err != nil {
+		if err := daemon.UninstallService(slog.Default(), cfg, ""); err != nil {
 			return fmt.Errorf("uninstall failed: %w", err)
 		}
 

@@ -100,6 +100,16 @@ func (be *BudgetEnforcer) RecordCost(sessionID string, cost float64) *BudgetResu
 	return worst
 }
 
+// UpdateLimits updates budget thresholds at runtime (config hot-reload).
+func (be *BudgetEnforcer) UpdateLimits(perSession, perHour, perDay float64, warnPct int) {
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	be.perSession = perSession
+	be.perHour = perHour
+	be.perDay = perDay
+	be.warnPct = float64(warnPct) / 100.0
+}
+
 func (be *BudgetEnforcer) SessionCost(sessionID string) float64 {
 	be.mu.Lock()
 	defer be.mu.Unlock()

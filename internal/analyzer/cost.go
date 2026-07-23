@@ -4,7 +4,9 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/loop-eng/loopguard/internal/config"
 	"github.com/loop-eng/loopguard/internal/parser"
 )
 
@@ -14,13 +16,23 @@ type modelEntry struct {
 }
 
 type CostCalculator struct {
+	mu      sync.RWMutex
 	pricing map[string]ModelPricing
 	sorted  []modelEntry
 	logger  *slog.Logger
 }
 
-func NewCostCalculator(logger *slog.Logger) *CostCalculator {
+func NewCostCalculator(logger *slog.Logger, overrides map[string]config.PricingOverride) *CostCalculator {
 	pricing := DefaultPricing()
+	for model, o := range overrides {
+		pricing[model] = ModelPricing{
+			InputPerMTok:      o.InputPerMTok,
+			OutputPerMTok:     o.OutputPerMTok,
+			CacheReadPerMTok:  o.CacheReadPerMTok,
+			CacheWritePerMTok: o.CacheWritePerMTok,
+		}
+	}
+
 	sorted := make([]modelEntry, 0, len(pricing))
 	for name, p := range pricing {
 		sorted = append(sorted, modelEntry{name, p})
@@ -35,6 +47,33 @@ func NewCostCalculator(logger *slog.Logger) *CostCalculator {
 	}
 }
 
+// MergePricing rebuilds the pricing table from defaults + new overrides.
+// Used by config hot-reload to apply updated user pricing at runtime.
+func (cc *CostCalculator) MergePricing(overrides map[string]config.PricingOverride) {
+	pricing := DefaultPricing()
+	for model, o := range overrides {
+		pricing[model] = ModelPricing{
+			InputPerMTok:      o.InputPerMTok,
+			OutputPerMTok:     o.OutputPerMTok,
+			CacheReadPerMTok:  o.CacheReadPerMTok,
+			CacheWritePerMTok: o.CacheWritePerMTok,
+		}
+	}
+
+	sorted := make([]modelEntry, 0, len(pricing))
+	for name, p := range pricing {
+		sorted = append(sorted, modelEntry{name, p})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].name) > len(sorted[j].name)
+	})
+
+	cc.mu.Lock()
+	cc.pricing = pricing
+	cc.sorted = sorted
+	cc.mu.Unlock()
+}
+
 func (cc *CostCalculator) Calculate(usage parser.TokenUsage, model string) float64 {
 	p := cc.resolve(model)
 
@@ -47,6 +86,9 @@ func (cc *CostCalculator) Calculate(usage parser.TokenUsage, model string) float
 }
 
 func (cc *CostCalculator) resolve(model string) ModelPricing {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+
 	if p, ok := cc.pricing[model]; ok {
 		return p
 	}

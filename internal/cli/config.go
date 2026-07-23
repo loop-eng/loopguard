@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +42,7 @@ spin_detection:
   error_echo: 3             # same error N times → spin
   stall_minutes: 10         # no file changes for N min → warn
   cost_velocity_per_min: 2.0
+  context_fill_percent: 85  # context window fill % → spin (0 disables)
 
 enforcement:
   action: pause             # pause | kill | warn
@@ -55,6 +57,14 @@ sources:
   codex: auto               # auto | disabled
   gemini: auto              # auto | disabled
   custom: []                # additional glob patterns to watch
+
+# Pricing overrides (optional):
+# pricing:
+#   my-custom-model:
+#     input_per_mtok: 1.00
+#     output_per_mtok: 4.00
+#     cache_read_per_mtok: 0.10
+#     cache_write_per_mtok: 1.00
 
 # Environment variable overrides:
 #   LOOPGUARD_BUDGET_PER_SESSION=30
@@ -92,7 +102,25 @@ var configInitCmd = &cobra.Command{
 	},
 }
 
+var configShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show the running daemon's active configuration",
+	Long: `Queries the running LoopGuard daemon and displays its active configuration
+as JSON. Useful for debugging or verifying that config hot-reload applied correctly.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		snapshot, err := fetchConfig()
+		if err != nil {
+			return fmt.Errorf("daemon not running or unreachable: %w", err)
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(snapshot)
+	},
+}
+
 func init() {
 	configCmd.AddCommand(configInitCmd)
+	configCmd.AddCommand(configShowCmd)
 	rootCmd.AddCommand(configCmd)
 }

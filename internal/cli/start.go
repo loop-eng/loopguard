@@ -20,7 +20,7 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		if err := daemon.StartService(slog.Default(), cfg); err != nil {
+		if err := daemon.StartService(slog.Default(), cfg, ""); err != nil {
 			return fmt.Errorf("start failed: %w\nIs the service installed? Run: loopguard install", err)
 		}
 

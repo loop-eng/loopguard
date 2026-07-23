@@ -20,7 +20,7 @@ var stopCmd = &cobra.Command{
 			return err
 		}
 
-		if err := daemon.StopService(slog.Default(), cfg); err != nil {
+		if err := daemon.StopService(slog.Default(), cfg, ""); err != nil {
 			return fmt.Errorf("stop failed: %w", err)
 		}
 

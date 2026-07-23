@@ -258,3 +258,28 @@ func TestSpinDetectorBudget(t *testing.T) {
 		t.Error("should exceed at 110%")
 	}
 }
+
+func TestBudgetUpdateLimits(t *testing.T) {
+	be := NewBudgetEnforcer(10.0, 50.0, 200.0, 80)
+
+	// Record 8.5 — should warn at 80% of 10.0
+	r := be.RecordCost("s1", 8.5)
+	if r == nil || !r.Warning {
+		t.Error("should warn at 85% of $10 limit")
+	}
+
+	// Raise the limit to $100 — now 8.5 is only 8.5%
+	be.UpdateLimits(100.0, 500.0, 2000.0, 80)
+
+	// Record another small amount on a new session
+	r = be.RecordCost("s2", 5.0)
+	if r != nil {
+		t.Error("should not alert at 5% of $100 limit after UpdateLimits")
+	}
+
+	// The old session s1 still has 8.5 recorded — but that's 8.5% of new limit
+	r = be.RecordCost("s1", 1.0)
+	if r != nil {
+		t.Error("s1 total 9.5 should not trigger with new $100 limit")
+	}
+}

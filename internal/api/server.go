@@ -41,7 +41,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("GET /api/sessions", s.handleSessions)
+	s.mux.HandleFunc("GET /api/sessions/{id}", s.handleSessionDetail)
 	s.mux.HandleFunc("POST /api/sessions/{id}/resume", s.handleResume)
+	s.mux.HandleFunc("POST /api/sessions/{id}/kill", s.handleKill)
+	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 }
 
 func (s *Server) Serve(ctx context.Context, socketPath string) error {
