@@ -219,6 +219,10 @@ LoopGuard is the flagship tool in the [loop-eng](https://github.com/loop-eng) ec
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, testing guide, and how to add support for new agent sources.
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ```bash
 make build      # build binary to bin/loopguard
 make test       # run tests with race detector
